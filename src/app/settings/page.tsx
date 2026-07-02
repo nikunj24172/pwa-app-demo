@@ -132,7 +132,7 @@ function Settings({ me }: { me: Me }) {
                 variant="surface"
                 onClick={enableBiometrics}
                 loading={bioBusy}
-                className="mt-3"
+                className="mt-3"  
               >
                 🔒 Enable biometric unlock
               </Button>
