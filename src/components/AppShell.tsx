@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/client";
@@ -11,6 +11,10 @@ import {
 } from "@/lib/offlineStore";
 import { unlockWithBiometric } from "@/lib/biometricUnlock";
 import { Spinner, Button } from "@/components/ui";
+
+
+/** Idle timeout before the app locks and demands a biometric re-check. */
+const IDLE_MS = 2 * 60 * 1000; // 2 minutes
 
 export interface Me {
   user: {
@@ -51,6 +55,9 @@ export default function AppShell({
   const [gate, setGate] = useState<"open" | "locked" | "unavailable">("open");
   const [unlocking, setUnlocking] = useState(false);
   const [unlockErr, setUnlockErr] = useState("");
+  // Idle auto-lock: after IDLE_MS of no activity, require a biometric unlock.
+  const [idleLocked, setIdleLocked] = useState(false);
+  const lastActive = useRef(0);
 
   // Prepare offline storage once: drop stale (>48h) records and ask the browser
   // not to evict our cache under disk pressure.
@@ -58,6 +65,32 @@ export default function AppShell({
     sweepExpired();
     requestPersistentStorage();
   }, []);
+
+  // Idle auto-lock: once the officer is viewing content, watch for activity and
+  // lock after IDLE_MS. Biometric-enrolled users re-unlock with fingerprint/face;
+  // otherwise fall back to a full re-login.
+  useEffect(() => {
+    if (!me || idleLocked || (offline && gate !== "open")) return;
+    const mark = () => {
+      lastActive.current = Date.now();
+    };
+    const events = ["mousedown", "keydown", "touchstart", "pointerdown", "scroll"];
+    events.forEach((e) => window.addEventListener(e, mark, { passive: true }));
+    mark();
+    const iv = setInterval(() => {
+      if (Date.now() - lastActive.current < IDLE_MS) return;
+      if (me.biometricEnrolled) {
+        setUnlockErr("");
+        setIdleLocked(true);
+      } else {
+        router.replace("/login"); // no biometric to unlock with → re-authenticate
+      }
+    }, 5000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, mark));
+      clearInterval(iv);
+    };
+  }, [me, idleLocked, offline, gate, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +142,20 @@ export default function AppShell({
     setUnlocking(false);
     if (ok) setGate("open");
     else setUnlockErr("Unlock failed. Try again with your fingerprint or face.");
+  }
+
+  async function unlockIdle() {
+    if (!me) return;
+    setUnlockErr("");
+    setUnlocking(true);
+    const ok = await unlockWithBiometric(me.biometricCredentialIds);
+    setUnlocking(false);
+    if (ok) {
+      lastActive.current = Date.now();
+      setIdleLocked(false);
+    } else {
+      setUnlockErr("Unlock failed. Try again with your fingerprint or face.");
+    }
   }
 
   if (error) return null;
@@ -195,6 +242,25 @@ export default function AppShell({
       <main className="flex-1 p-4 sm:p-5">{children(me)}</main>
 
       <BottomTabs />
+
+      {/* Idle auto-lock overlay — covers content until a biometric re-check. */}
+      {idleLocked && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/95 p-6 text-center backdrop-blur">
+          <div className="flex max-w-xs flex-col items-center gap-5">
+            <div className="text-5xl">🔒</div>
+            <div>
+              <h2 className="text-xl font-bold">Session locked</h2>
+              <p className="mt-1 text-sm text-muted">
+                Locked after 2 minutes of inactivity. Verify it&apos;s you to continue.
+              </p>
+            </div>
+            {unlockErr && <p className="text-sm text-danger">{unlockErr}</p>}
+            <Button onClick={unlockIdle} loading={unlocking} className="w-full">
+              🔓 Unlock with fingerprint / face
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
