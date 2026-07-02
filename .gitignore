@@ -34,7 +34,7 @@ yarn-error.log*
 .env*
 # ...but do commit the template (no secrets) so deployments know what to set.
 !.env.example
-
+.env.example
 # vercel
 .vercel
 
