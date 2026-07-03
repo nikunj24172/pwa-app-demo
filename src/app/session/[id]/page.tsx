@@ -799,7 +799,7 @@ function Results({
                         disabled={mergeBusy === rKey}
                         className="flex items-center justify-center gap-2 rounded-xl bg-teal px-3 py-3 text-sm font-bold text-white disabled:opacity-60"
                       >
-                        {mergeBusy === rKey ? <Spinner /> : "↳"}
+                        {mergeBusy === rKey && <Spinner />}
                         {mergeBusy === rKey ? "Merging…" : "Merge to file"}
                       </button>
                     </div>
