@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { api, post } from "@/lib/client";
 import { cacheSessions, getCachedSessions, type CachedSession } from "@/lib/sessionCache";
 import AppShell from "@/components/AppShell";
-import InstallPrompt from "@/components/InstallPrompt";
 import { Badge, Alert, Spinner, SectionLabel } from "@/components/ui";
 
 export default function DashboardPage() {
@@ -81,8 +80,6 @@ function Dashboard({ name, canCreate }: { name: string; canCreate: boolean }) {
           {name.split(" ")[0] || name} <span className="text-accent">👋</span>
         </h2>
       </div>
-
-      <InstallPrompt />
 
       {canCreate && (
         <div className="rounded-2xl bg-gradient-to-br from-teal to-teal-deep p-5 text-white shadow-lg shadow-teal-deep/30">

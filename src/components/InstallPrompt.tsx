@@ -80,24 +80,28 @@ export default function InstallPrompt() {
         : "Click the install icon in the address bar, or ⋮ menu → “Install InfoLog.”";
 
   return (
-    <div className="rounded-2xl border border-accent/40 bg-accent/10 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-foreground">Add InfoLog to your home screen</p>
-          <p className="mt-1 text-sm text-muted">
-            {deferred
-              ? "Install the app for faster, full-screen access in the field."
-              : steps}
+    <div className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-md p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface/95 p-4 shadow-2xl backdrop-blur">
+        <div className="min-w-0">
+          <p className="font-semibold text-foreground">Install InfoLog</p>
+          <p className="mt-0.5 text-sm text-muted">
+            {deferred ? "Add to your home screen for offline field use." : steps}
           </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           {deferred && (
-            <Button onClick={install} className="mt-3">
-              📲 Install app
+            <Button onClick={install} className="px-3 py-2 text-xs">
+              Install
             </Button>
           )}
+          <button
+            onClick={dismiss}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
         </div>
-        <button onClick={dismiss} className="shrink-0 text-muted" aria-label="Dismiss">
-          ✕
-        </button>
       </div>
     </div>
   );
