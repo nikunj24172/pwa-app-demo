@@ -35,10 +35,10 @@ function Dashboard({ name, canCreate }: { name: string; canCreate: boolean }) {
     try {
       const r = await api<{ sessions: CachedSession[] }>("/api/sessions");
       setSessions(r.sessions);
-      cacheSessions(r.sessions);
+      await cacheSessions(r.sessions);
     } catch {
       // Offline / server unreachable: fall back to the 48h metadata cache.
-      const { sessions: cached, expired } = getCachedSessions();
+      const { sessions: cached, expired } = await getCachedSessions();
       if (cached.length) {
         setSessions(cached);
         setErr("Offline — showing file sessions cached within the last 48 hours.");

@@ -73,7 +73,10 @@ export default function AppShell({
     if (!me || idleLocked || (offline && gate !== "open")) return;
     // Idle biometric lock is a MOBILE-only feature — laptops/desktops may have
     // no fingerprint/face reader, so we don't lock them out after inactivity.
-    const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+    // Requires BOTH a mobile UA and a touch device, so desktops never match.
+    const isMobile =
+      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) &&
+      navigator.maxTouchPoints > 0;
     if (!isMobile) return;
     const mark = () => {
       lastActive.current = Date.now();

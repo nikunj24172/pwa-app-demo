@@ -86,7 +86,7 @@ function Settings({ me }: { me: Me }) {
   async function signOut() {
     setOutBusy(true);
     await post("/api/auth/logout").catch(() => {});
-    clearCachedSessions();
+    await clearCachedSessions(); // also drops the legacy localStorage entry
     await clearOfflineCache(); // wipe encrypted PII cache + its key on sign-out
     router.replace("/login");
   }

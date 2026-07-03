@@ -9,9 +9,10 @@ export default function Offline() {
   const [expired, setExpired] = useState(false);
 
   useEffect(() => {
-    const { sessions, expired } = getCachedSessions();
-    setSessions(sessions);
-    setExpired(expired);
+    getCachedSessions().then(({ sessions, expired }) => {
+      setSessions(sessions);
+      setExpired(expired);
+    });
   }, []);
 
   return (

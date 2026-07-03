@@ -32,6 +32,10 @@ interface Envelope {
   ct: ArrayBuffer;
   savedAt: number;
   expiresAt: number;
+  /** "blob" = raw binary (e.g. photos); absent/"json" = JSON payload. */
+  kind?: "json" | "blob";
+  /** MIME type, kept so a Blob can be reconstructed as it was stored. */
+  mime?: string;
 }
 
 const hasIDB = () => typeof indexedDB !== "undefined";
@@ -128,7 +132,7 @@ export async function cacheGet<T>(key: string): Promise<{ value: T; savedAt: num
   if (!hasIDB()) return null;
   try {
     const env = await run<Envelope | undefined>(DATA_STORE, "readonly", (s) => s.get(key));
-    if (!env) return null;
+    if (!env || env.kind === "blob") return null;
     if (env.expiresAt < Date.now()) {
       await cacheDelete(key);
       return null;
@@ -140,6 +144,61 @@ export async function cacheGet<T>(key: string): Promise<{ value: T; savedAt: num
       env.ct
     );
     return { value: JSON.parse(decoder.decode(buf)) as T, savedAt: env.savedAt };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Encrypt + store BINARY data (e.g. a photo) under `key`. Blobs are stored as
+ * raw encrypted bytes — no base64 inflation (~33% smaller than string storage)
+ * and no JSON.stringify memory spikes on large images.
+ */
+export async function cacheSetBlob(key: string, blob: Blob, ttlMs = OFFLINE_TTL_MS): Promise<void> {
+  if (!hasIDB()) return;
+  try {
+    const cryptoKey = await getCryptoKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      cryptoKey,
+      await blob.arrayBuffer()
+    );
+    const now = Date.now();
+    const env: Envelope = {
+      key,
+      iv,
+      ct,
+      savedAt: now,
+      expiresAt: now + ttlMs,
+      kind: "blob",
+      mime: blob.type || "image/jpeg",
+    };
+    await run(DATA_STORE, "readwrite", (s) => s.put(env));
+  } catch {
+    /* storage full / crypto unavailable — offline cache is best-effort */
+  }
+}
+
+/** Read + decrypt a Blob. Returns null if missing, wrong kind, or expired. */
+export async function cacheGetBlob(
+  key: string
+): Promise<{ blob: Blob; savedAt: number } | null> {
+  if (!hasIDB()) return null;
+  try {
+    const env = await run<Envelope | undefined>(DATA_STORE, "readonly", (s) => s.get(key));
+    if (!env || env.kind !== "blob") return null;
+    if (env.expiresAt < Date.now()) {
+      await cacheDelete(key);
+      return null;
+    }
+    const cryptoKey = await getCryptoKey();
+    const buf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: env.iv as BufferSource },
+      cryptoKey,
+      env.ct
+    );
+    return { blob: new Blob([buf], { type: env.mime || "image/jpeg" }), savedAt: env.savedAt };
   } catch {
     return null;
   }

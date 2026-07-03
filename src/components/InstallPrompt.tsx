@@ -3,86 +3,117 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui";
 
-// Public routes where the install banner should NOT show (pre-login).
-const PUBLIC_PATHS = ["/", "/login", "/offline"];
-
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-const DISMISS_KEY = "infolog.a2hs.dismissed";
+// Dismiss = SNOOZE: hidden for a few minutes, then offered again on the next
+// page. Only actually installing the app stops it permanently.
+const DISMISS_KEY = "infolog.a2hs.dismissedAt";
+const INSTALLED_KEY = "infolog.a2hs.installed";
+const SNOOZE_MS = 5 * 60 * 1000; // ~5 minutes
+
+// Public routes where the install banner should NOT show (pre-login).
+const PUBLIC_PATHS = ["/", "/login", "/offline"];
+
 type Platform = "ios" | "android" | "desktop";
+
+function detectPlatform(): Platform {
+  if (typeof window === "undefined") return "desktop";
+  const ua = window.navigator.userAgent;
+  if (/iphone|ipad|ipod/i.test(ua) || (/mac/i.test(ua) && "ontouchend" in document)) return "ios";
+  return /android/i.test(ua) ? "android" : "desktop";
+}
 
 /**
  * "Add to Home Screen" prompt.
- * - Chrome/Edge fire `beforeinstallprompt` → we show a native "Install" button.
+ * - Chrome/Edge fire `beforeinstallprompt` → native one-tap Install button.
  * - iOS Safari never fires it (no auto dialog exists on iOS) → manual steps.
- * - As a fallback (any browser that doesn't fire the event), we still show
- *   platform-specific manual instructions so there's always an install path.
+ * - Dismissing snoozes for SNOOZE_MS; it re-appears on a later page visit.
  */
 export default function InstallPrompt() {
   const pathname = usePathname();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
-  const platformRef = useRef<Platform>("desktop");
+  const [platform] = useState<Platform>(detectPlatform);
+  const skipRef = useRef(false); // standalone or already installed → never show
 
+  // Mount once: platform + standalone detection, capture the install event.
   useEffect(() => {
-    if (localStorage.getItem(DISMISS_KEY)) return;
-
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       // @ts-expect-error iOS Safari-only property
       window.navigator.standalone === true;
-    if (standalone) return; // already installed
-
-    const ua = window.navigator.userAgent;
-    const ios = /iphone|ipad|ipod/i.test(ua) || (/mac/i.test(ua) && "ontouchend" in document);
-    const android = /android/i.test(ua);
-    platformRef.current = ios ? "ios" : android ? "android" : "desktop";
+    if (standalone || localStorage.getItem(INSTALLED_KEY)) {
+      skipRef.current = true;
+      return;
+    }
 
     const onPrompt = (e: Event) => {
-      e.preventDefault();
+      e.preventDefault(); // suppress Chrome's own banner; we render ours
       setDeferred(e as BeforeInstallPromptEvent);
-      setShow(true);
+    };
+    const onInstalled = () => {
+      skipRef.current = true;
+      try {
+        localStorage.setItem(INSTALLED_KEY, "1");
+      } catch {}
+      setShow(false);
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    window.addEventListener("appinstalled", dismiss);
-
-    // Fallback: if the native event never fires, still surface manual steps.
-    const t = setTimeout(() => setShow(true), ios ? 300 : 2500);
-
+    window.addEventListener("appinstalled", onInstalled);
     return () => {
       window.removeEventListener("beforeinstallprompt", onPrompt);
-      window.removeEventListener("appinstalled", dismiss);
-      clearTimeout(t);
+      window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
+
+  // On every navigation (and periodically), re-offer once the snooze expired.
+  useEffect(() => {
+    if (skipRef.current) return;
+    const evaluate = () => {
+      if (skipRef.current) return;
+      const dismissedAt = Number(localStorage.getItem(DISMISS_KEY) || 0);
+      if (Date.now() - dismissedAt >= SNOOZE_MS) setShow(true);
+    };
+    const t = setTimeout(evaluate, 400); // let the page settle first
+    const iv = setInterval(evaluate, 30_000); // re-check while user stays put
+    return () => {
+      clearTimeout(t);
+      clearInterval(iv);
+    };
+  }, [pathname]);
 
   function dismiss() {
     setShow(false);
     try {
-      localStorage.setItem(DISMISS_KEY, "1");
-    } catch {
-      /* ignore */
-    }
+      localStorage.setItem(DISMISS_KEY, String(Date.now())); // snooze, not forever
+    } catch {}
   }
 
   async function install() {
     if (!deferred) return;
     await deferred.prompt();
-    await deferred.userChoice;
-    dismiss();
+    const choice = await deferred.userChoice;
+    if (choice.outcome === "accepted") {
+      skipRef.current = true;
+      try {
+        localStorage.setItem(INSTALLED_KEY, "1");
+      } catch {}
+      setShow(false);
+    } else {
+      dismiss();
+    }
   }
 
-  // Capture happens app-wide (suppresses Chrome's native prompt on login too),
-  // but the banner only renders on signed-in routes — i.e. after login.
+  // Banner renders on signed-in routes only (capture still happens app-wide).
   if (!show || PUBLIC_PATHS.includes(pathname)) return null;
 
   const steps =
-    platformRef.current === "ios"
+    platform === "ios"
       ? "Tap the Share icon, then “Add to Home Screen.”"
-      : platformRef.current === "android"
+      : platform === "android"
         ? "Open the ⋮ menu, then “Add to Home screen” / “Install app.”"
         : "Click the install icon in the address bar, or ⋮ menu → “Install InfoLog.”";
 

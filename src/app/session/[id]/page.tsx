@@ -2,7 +2,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, post } from "@/lib/client";
-import { cacheGet, cacheSet, searchCacheKey } from "@/lib/offlineStore";
+import { cacheGet, cacheSet, cacheGetBlob, cacheSetBlob, searchCacheKey } from "@/lib/offlineStore";
 import { compressImage } from "@/lib/image";
 import AppShell, { type Me } from "@/components/AppShell";
 import { Button, Input, Badge, Alert, Spinner, SectionLabel, KV } from "@/components/ui";
@@ -56,7 +56,8 @@ function resultKeyOf(type: SearchType, plateOrTitle: string): string {
   return `${type}:${plateOrTitle}`;
 }
 
-const FAV_KEY = "infolog.fav.services";
+const FAV_KEY = "prefs:favServices";
+const FAV_TTL_MS = 30 * 24 * 60 * 60 * 1000; // favourites live longer than data caches
 const TYPE_ORDER: SearchType[] = ["vehicle", "company", "property"];
 
 /** Every field key that exists for a given record type. */
@@ -161,8 +162,35 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     try {
       const r = await api<{ photos: SessionPhoto[] }>(`/api/sessions/${id}/photos`);
       setPhotos(r.photos);
+      // 48h offline: metadata as JSON, each image as an encrypted BLOB (raw
+      // bytes — smaller than base64, no giant-string JSON overhead).
+      cacheSet(
+        `photos:${id}`,
+        r.photos.map((p) => ({
+          _id: p._id,
+          resultKey: p.resultKey,
+          label: p.label,
+          createdAt: p.createdAt,
+        }))
+      );
+      r.photos.forEach(async (p) => {
+        try {
+          const blob = await (await fetch(p.dataUrl)).blob();
+          cacheSetBlob(`photo:${p._id}`, blob);
+        } catch {
+          /* best-effort */
+        }
+      });
     } catch {
-      /* offline / not available — leave existing */
+      // Offline: rebuild the gallery from cached metadata + encrypted blobs.
+      const cached = await cacheGet<Omit<SessionPhoto, "dataUrl">[]>(`photos:${id}`);
+      if (!cached) return;
+      const rebuilt: SessionPhoto[] = [];
+      for (const meta of cached.value) {
+        const b = await cacheGetBlob(`photo:${meta._id}`);
+        if (b) rebuilt.push({ ...meta, dataUrl: URL.createObjectURL(b.blob) });
+      }
+      setPhotos(rebuilt);
     }
   }, [id]);
 
@@ -230,6 +258,21 @@ function SessionView({ id, me }: { id: string; me: Me }) {
       setPhotos((prev) => [r.photo, ...prev]);
       setMarkup(null);
       setCaptureFor(null);
+      // Make the new photo offline-available immediately (blob + metadata).
+      try {
+        const blob = await (await fetch(r.photo.dataUrl)).blob();
+        await cacheSetBlob(`photo:${r.photo._id}`, blob);
+        const meta = {
+          _id: r.photo._id,
+          resultKey: r.photo.resultKey,
+          label: r.photo.label,
+          createdAt: r.photo.createdAt,
+        };
+        const cached = await cacheGet<Omit<SessionPhoto, "dataUrl">[]>(`photos:${id}`);
+        cacheSet(`photos:${id}`, [meta, ...(cached?.value ?? [])]);
+      } catch {
+        /* best-effort */
+      }
     } catch (e) {
       setPhotoErr((e as Error).message || "Couldn't save the photo.");
     } finally {
@@ -268,17 +311,15 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     loadHistory();
     loadPhotos();
     loadRecords();
-    try {
-      setFavs(JSON.parse(localStorage.getItem(FAV_KEY) || "[]"));
-    } catch {}
+    cacheGet<string[]>(FAV_KEY).then((hit) => {
+      if (hit) setFavs(hit.value);
+    });
   }, [id, loadHistory, loadPhotos, loadRecords, router]);
 
   function toggleFav(sid: string) {
-    setFavs((prev) => {
-      const next = prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid];
-      localStorage.setItem(FAV_KEY, JSON.stringify(next));
-      return next;
-    });
+    const next = favs.includes(sid) ? favs.filter((x) => x !== sid) : [...favs, sid];
+    setFavs(next);
+    void cacheSet(FAV_KEY, next, FAV_TTL_MS);
   }
 
   function openService(s: SearchService) {
