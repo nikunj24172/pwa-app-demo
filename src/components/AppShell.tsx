@@ -265,9 +265,15 @@ export default function AppShell({
   );
 }
 
-function TabIcon({ name }: { name: "home" | "history" | "settings" }) {
+function TabIcon({ name }: { name: "home" | "profile" | "settings" }) {
   const paths: Record<string, React.ReactNode> = {
     home: <path d="M3 10.5 12 4l9 6.5M5 9.5V20h14V9.5" />,
+    profile: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+      </>
+    ),
     history: (
       <>
         <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -291,7 +297,7 @@ function TabIcon({ name }: { name: "home" | "history" | "settings" }) {
 function BottomTabs() {
   const pathname = usePathname();
   const isHome = pathname.startsWith("/dashboard") || pathname.startsWith("/session");
-  const isHistory = pathname.startsWith("/history");
+  const isProfile = pathname.startsWith("/profile");
   const isSettings = pathname.startsWith("/settings");
 
   const base = "flex flex-1 flex-col items-center gap-1 py-1.5 text-[10px] font-semibold transition";
@@ -301,9 +307,9 @@ function BottomTabs() {
         <TabIcon name="home" />
         Home
       </Link>
-      <Link href="/history" className={`${base} ${isHistory ? "text-accent" : "text-muted"}`}>
-        <TabIcon name="history" />
-        Audit
+      <Link href="/profile" className={`${base} ${isProfile ? "text-accent" : "text-muted"}`}>
+        <TabIcon name="profile" />
+        Profile
       </Link>
       <Link href="/settings" className={`${base} ${isSettings ? "text-accent" : "text-muted"}`}>
         <TabIcon name="settings" />

@@ -50,7 +50,7 @@ export const SEARCH_SERVICES: SearchService[] = [
       {
         label: "Search by VIN / chassis",
         button: "Search VIN",
-        fields: [{ key: "vin", label: "VIN / chassis", placeholder: "17-character VIN", caps: true }],
+        fields: [{ key: "vin", label: "VIN / chassis", placeholder: "e.g. MPBCMFF60RX653797", caps: true }],
       },
     ],
   },
@@ -68,7 +68,7 @@ export const SEARCH_SERVICES: SearchService[] = [
         button: "Search name / address",
         fields: [
           { key: "name", label: "Entity name", placeholder: "e.g. Fuel Media Limited" },
-          { key: "registeredAddress", label: "Entity address", placeholder: "Street, suburb or city" },
+          { key: "registeredAddress", label: "Entity address", placeholder: "e.g. Halsey Street, Auckland" },
         ],
       },
       {
@@ -92,7 +92,7 @@ export const SEARCH_SERVICES: SearchService[] = [
       {
         label: "Search a person across the register",
         button: "Search roles",
-        fields: [{ key: "director", label: "Person name", placeholder: "e.g. Kavermann" }],
+        fields: [{ key: "director", label: "Person name", placeholder: "e.g. Timothy Clarke" }],
       },
     ],
   },
@@ -108,7 +108,7 @@ export const SEARCH_SERVICES: SearchService[] = [
       {
         label: "Search by owner name",
         button: "Search owner name",
-        fields: [{ key: "ownerName", label: "Owner name", placeholder: "Person or company name" }],
+        fields: [{ key: "ownerName", label: "Owner name", placeholder: "e.g. Fuel Media Limited" }],
       },
     ],
   },
@@ -124,7 +124,7 @@ export const SEARCH_SERVICES: SearchService[] = [
       {
         label: "Search by street address",
         button: "Search address",
-        fields: [{ key: "address", label: "Street address", placeholder: "Street, suburb or city" }],
+        fields: [{ key: "address", label: "Street address", placeholder: "e.g. Kennedy Avenue, Auckland" }],
       },
     ],
   },

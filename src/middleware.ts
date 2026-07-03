@@ -4,7 +4,7 @@ import { SESSION_COOKIE } from "@/lib/auth";
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET);
 
-const PROTECTED_PREFIXES = ["/dashboard", "/session", "/search", "/history", "/settings"];
+const PROTECTED_PREFIXES = ["/dashboard", "/session", "/search", "/history", "/settings", "/profile"];
 const AUTH_PAGES = ["/login"];
 
 async function isValidSession(token?: string): Promise<boolean> {
@@ -48,6 +48,7 @@ export const config = {
     "/search/:path*",
     "/history/:path*",
     "/settings/:path*",
+    "/profile/:path*",
     "/login",
   ],
 };
