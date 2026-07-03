@@ -9,9 +9,14 @@ export default function ServiceWorkerRegister() {
     // Screen needs an active SW). The SW is network-first for navigation/RSC,
     // so it does NOT cause stale-routing (see public/sw.js).
     const onLoad = () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        /* SW registration is best-effort */
-      });
+      // updateViaCache:"none" = always fetch sw.js fresh when checking for
+      // updates, so a new deploy's worker rolls out on the next visit.
+      navigator.serviceWorker
+        .register("/sw.js", { updateViaCache: "none" })
+        .then((reg) => reg.update().catch(() => {}))
+        .catch(() => {
+          /* SW registration is best-effort */
+        });
     };
     if (document.readyState === "complete") onLoad();
     else window.addEventListener("load", onLoad);
