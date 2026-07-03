@@ -35,9 +35,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     userId: guard.session.sub,
   });
   if (!fileSession) return error("File session not found.", 404);
-  if (fileSession.status !== "open") {
-    return error("This file session is closed. Reopen it to search.", 409);
-  }
 
   const results = await runSearch(type, fields);
   if (results === null) return error("Enter at least 2 characters in one field.");

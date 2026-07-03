@@ -43,9 +43,6 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   await connectDB();
   const session = await FileSession.findOne({ _id: id, userId: guard.session.sub });
   if (!session) return error("Session not found.", 404);
-  if (session.status !== "open") {
-    return error("This file session is closed.", 409);
-  }
 
   // Upsert: one record per result, but re-merging UPDATES the snapshot (so a
   // merge after new photos/details refreshes what's in the file).

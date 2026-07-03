@@ -139,9 +139,7 @@ function Dashboard({ name, canCreate }: { name: string; canCreate: boolean }) {
                       <span className="text-muted">🗂️</span>
                       <span className="truncate">{s.title}</span>
                     </p>
-                    <Badge tone={s.status === "open" ? "ok" : "muted"}>
-                      {s.status === "open" ? "Audited" : "Closed"}
-                    </Badge>
+                    <Badge tone="ok">Audited</Badge>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs">
                     <Meta label="Case ref" value={s.caseRef || "—"} />

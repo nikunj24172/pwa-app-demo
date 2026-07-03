@@ -455,9 +455,7 @@ function SessionView({ id, me }: { id: string; me: Me }) {
             <span className="text-warn">★</span>
             <span className="truncate">{session.title}</span>
           </p>
-          <Badge tone={session.status === "open" ? "ok" : "muted"}>
-            {session.status === "open" ? "Audited" : "Closed"}
-          </Badge>
+          <Badge tone="ok">Audited</Badge>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2">
           <BannerBtn onClick={shareSession} label="🔗 Share" />
@@ -528,7 +526,7 @@ function SessionView({ id, me }: { id: string; me: Me }) {
             onCapture={capturePhoto}
             photoBusy={photoBusy}
             photoErr={photoErr}
-            canCapture={!offline && session.status === "open"}
+            canCapture={!offline}
             onMerge={mergeToFile}
             mergeBusy={mergeBusy}
           />
