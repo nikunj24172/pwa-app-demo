@@ -47,7 +47,9 @@ export default function Offline() {
                     <p className="font-semibold">{s.title}</p>
                     <p className="text-xs text-muted">{s.caseRef || "No case ref"}</p>
                   </div>
-                  <Badge tone={s.status === "open" ? "ok" : "muted"}>{s.status}</Badge>
+                  <Badge tone={s.status === "open" ? "ok" : "muted"}>
+                    {s.status === "open" ? "Audited" : "Closed"}
+                  </Badge>
                 </div>
               </Card>
             </Link>
