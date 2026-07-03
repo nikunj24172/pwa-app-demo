@@ -71,6 +71,10 @@ export default function AppShell({
   // otherwise fall back to a full re-login.
   useEffect(() => {
     if (!me || idleLocked || (offline && gate !== "open")) return;
+    // Idle biometric lock is a MOBILE-only feature — laptops/desktops may have
+    // no fingerprint/face reader, so we don't lock them out after inactivity.
+    const isMobile = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+    if (!isMobile) return;
     const mark = () => {
       lastActive.current = Date.now();
     };

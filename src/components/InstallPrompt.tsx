@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui";
+
+// Public routes where the install banner should NOT show (pre-login).
+const PUBLIC_PATHS = ["/", "/login", "/offline"];
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -18,6 +22,7 @@ type Platform = "ios" | "android" | "desktop";
  *   platform-specific manual instructions so there's always an install path.
  */
 export default function InstallPrompt() {
+  const pathname = usePathname();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
   const platformRef = useRef<Platform>("desktop");
@@ -70,7 +75,9 @@ export default function InstallPrompt() {
     dismiss();
   }
 
-  if (!show) return null;
+  // Capture happens app-wide (suppresses Chrome's native prompt on login too),
+  // but the banner only renders on signed-in routes — i.e. after login.
+  if (!show || PUBLIC_PATHS.includes(pathname)) return null;
 
   const steps =
     platformRef.current === "ios"

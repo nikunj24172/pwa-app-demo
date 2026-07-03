@@ -1,7 +1,7 @@
 "use client";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, post, patch } from "@/lib/client";
+import { api, post } from "@/lib/client";
 import { cacheGet, cacheSet, searchCacheKey } from "@/lib/offlineStore";
 import { compressImage } from "@/lib/image";
 import AppShell, { type Me } from "@/components/AppShell";
@@ -20,6 +20,7 @@ import {
   type SearchMode,
 } from "@/lib/searchFields";
 import OwnerMap from "@/components/OwnerMap";
+import PhotoMarkup from "@/components/PhotoMarkup";
 
 interface FileSession {
   _id: string;
@@ -128,6 +129,7 @@ function SessionView({ id, me }: { id: string; me: Me }) {
   const [photos, setPhotos] = useState<SessionPhoto[]>([]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState("");
+  const [markup, setMarkup] = useState<string | null>(null); // captured photo being edited
 
   const active = services.find((s) => s.id === activeId) || null;
 
@@ -140,16 +142,32 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     }
   }, [id]);
 
+  // Capture → open the markup editor (not saved until "Attach to search").
   async function capturePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file
     if (!file) return;
     setPhotoErr("");
-    setPhotoBusy(true);
     try {
       const dataUrl = await compressImage(file);
-      const r = await post<{ photo: SessionPhoto }>(`/api/sessions/${id}/photos`, { dataUrl });
+      setMarkup(dataUrl);
+    } catch (e) {
+      setPhotoErr((e as Error).message || "Couldn't read the photo.");
+    }
+  }
+
+  // Attach the marked-up image to the search/session record.
+  async function attachPhoto(finalDataUrl: string) {
+    setPhotoBusy(true);
+    setPhotoErr("");
+    try {
+      const label = values.registration || summary || undefined;
+      const r = await post<{ photo: SessionPhoto }>(`/api/sessions/${id}/photos`, {
+        dataUrl: finalDataUrl,
+        label,
+      });
       setPhotos((prev) => [r.photo, ...prev]);
+      setMarkup(null);
     } catch (e) {
       setPhotoErr((e as Error).message || "Couldn't save the photo.");
     } finally {
@@ -286,9 +304,24 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     }
   }
 
-  async function closeSession() {
-    await patch(`/api/sessions/${id}`, { status: "closed" });
-    router.replace("/dashboard");
+  async function shareSession() {
+    if (!session) return;
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    const data: ShareData = {
+      title: `InfoLog — ${session.title}`,
+      text: `File session: ${session.title}${session.caseRef ? ` (${session.caseRef})` : ""}`,
+      url,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(data);
+      } else if (navigator.clipboard && url) {
+        await navigator.clipboard.writeText(url);
+        setErr("Session link copied to clipboard.");
+      }
+    } catch {
+      /* user cancelled the share sheet — ignore */
+    }
   }
 
   if (!session)
@@ -302,6 +335,15 @@ function SessionView({ id, me }: { id: string; me: Me }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {markup && (
+        <PhotoMarkup
+          image={markup}
+          busy={photoBusy}
+          onCancel={() => setMarkup(null)}
+          onAttach={attachPhoto}
+        />
+      )}
+
       {/* session banner */}
       <div className="rounded-2xl border border-border bg-surface p-4">
         <div className="flex items-center justify-between gap-2">
@@ -314,11 +356,9 @@ function SessionView({ id, me }: { id: string; me: Me }) {
           </Badge>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          <BannerBtn onClick={backToMenu} label="🔎 New" />
+          <BannerBtn onClick={shareSession} label="🔗 Share" />
           <BannerBtn onClick={() => loadHistory()} label="🕘 History" />
-          {session.status === "open" && !offline && (
-            <BannerBtn onClick={closeSession} label="✕ Close" danger />
-          )}
+          <BannerBtn onClick={backToMenu} label="🔎 New" />
         </div>
       </div>
 
