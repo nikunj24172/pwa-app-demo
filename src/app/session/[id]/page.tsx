@@ -3,6 +3,7 @@ import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, post, patch } from "@/lib/client";
 import { cacheGet, cacheSet, searchCacheKey } from "@/lib/offlineStore";
+import { compressImage } from "@/lib/image";
 import AppShell, { type Me } from "@/components/AppShell";
 import { Button, Input, Badge, Alert, Spinner, SectionLabel, KV } from "@/components/ui";
 import {
@@ -32,6 +33,12 @@ interface HistoryItem {
   searchType: SearchType;
   searchedValue: string;
   resultCount: number;
+  createdAt: string;
+}
+interface SessionPhoto {
+  _id: string;
+  dataUrl: string;
+  label?: string;
   createdAt: string;
 }
 
@@ -118,8 +125,37 @@ function SessionView({ id, me }: { id: string; me: Me }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<SessionPhoto[]>([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState("");
 
   const active = services.find((s) => s.id === activeId) || null;
+
+  const loadPhotos = useCallback(async () => {
+    try {
+      const r = await api<{ photos: SessionPhoto[] }>(`/api/sessions/${id}/photos`);
+      setPhotos(r.photos);
+    } catch {
+      /* offline / not available — leave existing */
+    }
+  }, [id]);
+
+  async function capturePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setPhotoErr("");
+    setPhotoBusy(true);
+    try {
+      const dataUrl = await compressImage(file);
+      const r = await post<{ photo: SessionPhoto }>(`/api/sessions/${id}/photos`, { dataUrl });
+      setPhotos((prev) => [r.photo, ...prev]);
+    } catch (e) {
+      setPhotoErr((e as Error).message || "Couldn't save the photo.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   const loadHistory = useCallback(async () => {
     try {
@@ -150,6 +186,7 @@ function SessionView({ id, me }: { id: string; me: Me }) {
         }
       });
     loadHistory();
+    loadPhotos();
     try {
       setFavs(JSON.parse(localStorage.getItem(FAV_KEY) || "[]"));
     } catch {}
@@ -329,6 +366,45 @@ function SessionView({ id, me }: { id: string; me: Me }) {
           ))}
 
           <p className="text-[11px] leading-relaxed text-muted">{active.source}</p>
+
+          {/* MVR: capture a vehicle photo, attached to this file session */}
+          {active.type === "vehicle" && (
+            <div className="rounded-2xl border border-border bg-surface p-4">
+              <SectionLabel count={photos.length || undefined}>Vehicle photos</SectionLabel>
+              {offline || session.status !== "open" ? (
+                <p className="mt-1 text-xs text-muted">
+                  {offline ? "Reconnect to add photos." : "Session is closed."}
+                </p>
+              ) : (
+                <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-accent/50 bg-accent/5 px-4 py-3 text-sm font-semibold text-accent">
+                  {photoBusy ? <Spinner /> : "📷"}
+                  {photoBusy ? "Saving…" : "Capture vehicle photo"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    disabled={photoBusy}
+                    onChange={capturePhoto}
+                  />
+                </label>
+              )}
+              {photoErr && <p className="mt-2 text-sm text-danger">{photoErr}</p>}
+              {photos.length > 0 && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {photos.map((p) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={p._id}
+                      src={p.dataUrl}
+                      alt={p.label || "Vehicle"}
+                      className="aspect-square w-full rounded-lg border border-border object-cover"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {searched && (
             <p className="text-xs text-muted">

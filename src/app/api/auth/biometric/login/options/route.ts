@@ -3,7 +3,7 @@ import { generateAuthenticationOptions } from "@simplewebauthn/server";
 import { connectDB } from "@/lib/db";
 import { User } from "@/lib/models/User";
 import { WebAuthnCredential } from "@/lib/models/WebAuthnCredential";
-import { rpID, storeChallenge } from "@/lib/webauthn";
+import { storeChallenge, rpFromRequest } from "@/lib/webauthn";
 import { json, error } from "@/lib/api";
 
 /** Optional biometric unlock — request assertion options for an email. */
@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     return error("No biometric is enrolled for this account.", 404);
   }
 
+  const { rpID } = rpFromRequest(req);
   const options = await generateAuthenticationOptions({
     rpID,
     userVerification: "required", // force the fingerprint/face (or PIN) prompt

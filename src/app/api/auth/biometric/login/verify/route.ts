@@ -4,7 +4,7 @@ import { connectDB } from "@/lib/db";
 import { User } from "@/lib/models/User";
 import { WebAuthnCredential } from "@/lib/models/WebAuthnCredential";
 import { signSession, setSessionCookie, clearAuthCookies } from "@/lib/auth";
-import { rpID, expectedOrigins, readChallenge, clearChallenge } from "@/lib/webauthn";
+import { readChallenge, clearChallenge, rpFromRequest } from "@/lib/webauthn";
 import { json, error } from "@/lib/api";
 import { writeAudit } from "@/lib/audit";
 
@@ -23,10 +23,11 @@ export async function POST(req: NextRequest) {
 
   let verification;
   try {
+    const { rpID, origin } = rpFromRequest(req);
     verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge: stored.challenge,
-      expectedOrigin: expectedOrigins(req),
+      expectedOrigin: origin,
       expectedRPID: rpID,
       credential: {
         id: cred.credentialID,

@@ -26,6 +26,24 @@ export function expectedOrigins(req: { headers: { get(name: string): string | nu
   return [...set];
 }
 
+/**
+ * Derive the WebAuthn RP ID + origin from the incoming request so biometric
+ * works on ANY domain (localhost, Vercel preview/production, custom) with no
+ * env config. Falls back to the configured values if headers are missing.
+ */
+export function rpFromRequest(req: {
+  headers: { get(name: string): string | null };
+}): { rpID: string; origin: string } {
+  const host = req.headers.get("host");
+  const originHeader = req.headers.get("origin") || (host ? `https://${host}` : origin);
+  try {
+    const u = new URL(originHeader);
+    return { rpID: u.hostname, origin: u.origin };
+  } catch {
+    return { rpID, origin };
+  }
+}
+
 const CHALLENGE_COOKIE = "infolog_webauthn_challenge";
 const secret = new TextEncoder().encode(process.env.JWT_SECRET);
 

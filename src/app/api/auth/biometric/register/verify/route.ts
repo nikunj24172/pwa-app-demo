@@ -3,7 +3,7 @@ import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import { connectDB } from "@/lib/db";
 import { WebAuthnCredential } from "@/lib/models/WebAuthnCredential";
 import { getSession } from "@/lib/auth";
-import { rpID, expectedOrigins, readChallenge, clearChallenge } from "@/lib/webauthn";
+import { readChallenge, clearChallenge, rpFromRequest } from "@/lib/webauthn";
 import { json, error } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
@@ -18,10 +18,11 @@ export async function POST(req: NextRequest) {
 
   let verification;
   try {
+    const { rpID, origin } = rpFromRequest(req);
     verification = await verifyRegistrationResponse({
       response: body,
       expectedChallenge: stored.challenge,
-      expectedOrigin: expectedOrigins(req),
+      expectedOrigin: origin,
       expectedRPID: rpID,
     });
   } catch (e) {

@@ -1,13 +1,14 @@
+import type { NextRequest } from "next/server";
 import { generateRegistrationOptions } from "@simplewebauthn/server";
 import { connectDB } from "@/lib/db";
 import { User } from "@/lib/models/User";
 import { WebAuthnCredential } from "@/lib/models/WebAuthnCredential";
 import { getSession } from "@/lib/auth";
-import { rpID, rpName, storeChallenge } from "@/lib/webauthn";
+import { rpName, storeChallenge, rpFromRequest } from "@/lib/webauthn";
 import { json, error } from "@/lib/api";
 
 /** Optional biometric enrollment — requires an authenticated session. */
-export async function POST() {
+export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) return error("Not authenticated", 401);
 
@@ -17,6 +18,7 @@ export async function POST() {
 
   const existing = await WebAuthnCredential.find({ userId: user._id });
 
+  const { rpID } = rpFromRequest(req);
   const options = await generateRegistrationOptions({
     rpName,
     rpID,
