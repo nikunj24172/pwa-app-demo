@@ -1,6 +1,6 @@
 "use client";
 import { Suspense, useRef, useState, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 import { post } from "@/lib/client";
 import { Spinner } from "@/components/ui";
@@ -147,9 +147,11 @@ function MsBrand() {
 }
 
 function LoginInner() {
-  const router = useRouter();
   const params = useSearchParams();
   const dest = params.get("from") || "/dashboard";
+  // Full navigation (not router.replace) so we bypass any stale Router Cache
+  // entry for the destination that middleware redirected while unauthenticated.
+  const goDest = () => window.location.assign(dest);
 
   const [step, setStep] = useState<Step>("credentials");
   const [email, setEmail] = useState("");
@@ -165,7 +167,7 @@ function LoginInner() {
 
   /** After auth completes, offer biometric (if not enrolled) or go on. */
   function proceed() {
-    if (bioEnrolled) router.replace(dest);
+    if (bioEnrolled) goDest();
     else setStep("offer");
   }
 
@@ -205,7 +207,7 @@ function LoginInner() {
       setStep("mfaSetup");
     } catch {
       // Couldn't start setup — don't block sign-in.
-      if (bio) router.replace(dest);
+      if (bio) goDest();
       else setStep("offer");
     }
   }
@@ -240,7 +242,7 @@ function LoginInner() {
         token: code,
         location,
       });
-      if (r.biometricEnrolled) router.replace(dest);
+      if (r.biometricEnrolled) goDest();
       else setStep("offer");
     } catch (e) {
       setErr((e as Error).message);
@@ -264,7 +266,7 @@ function LoginInner() {
       const assertion = await startAuthentication({ optionsJSON: options as never });
       const location = await getLocation();
       await post("/api/auth/biometric/login/verify", { response: assertion, location });
-      router.replace(dest);
+      goDest();
     } catch (e) {
       const msg = (e as Error).message || "";
       setErr(
@@ -284,7 +286,7 @@ function LoginInner() {
       const options = await post("/api/auth/biometric/register/options");
       const attestation = await startRegistration({ optionsJSON: options as never });
       await post("/api/auth/biometric/register/verify", attestation);
-      router.replace(dest);
+      goDest();
     } catch (e) {
       const msg = (e as Error).message || "";
       setErr(
@@ -342,12 +344,9 @@ function LoginInner() {
             {busy ? "Verifying…" : "Verify & enable"}
           </button>
         </form>
-        <button
-          onClick={proceed}
-          className="mt-3 w-full text-center text-xs font-medium text-slate-500 hover:underline"
-        >
-          Skip for now
-        </button>
+        <p className="mt-3 text-center text-xs text-slate-400">
+          Two-step verification is required to continue.
+        </p>
       </MsCard>
     );
   }
@@ -527,7 +526,7 @@ function LoginInner() {
                 {busy && <Spinner />} Enable biometric unlock
               </button>
               <button
-                onClick={() => router.replace(dest)}
+                onClick={() => goDest()}
                 className="mt-3 w-full text-center text-sm text-white/70"
               >
                 Skip for now

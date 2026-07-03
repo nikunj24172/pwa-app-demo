@@ -30,7 +30,7 @@ export async function POST() {
     })),
     authenticatorSelection: {
       residentKey: "preferred",
-      userVerification: "preferred",
+      userVerification: "required", // force the fingerprint/face (or PIN) prompt
       // no attachment restriction → phone / other device passkeys allowed too
     },
   });

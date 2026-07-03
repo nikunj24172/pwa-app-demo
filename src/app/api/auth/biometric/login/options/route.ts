@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 
   const options = await generateAuthenticationOptions({
     rpID,
-    userVerification: "preferred",
+    userVerification: "required", // force the fingerprint/face (or PIN) prompt
     allowCredentials: creds.map((c) => ({
       id: c.credentialID,
       transports: c.transports as AuthenticatorTransport[],
