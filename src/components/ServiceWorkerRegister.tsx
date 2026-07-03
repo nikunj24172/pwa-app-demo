@@ -5,6 +5,9 @@ import { useEffect } from "react";
 export default function ServiceWorkerRegister() {
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    // Registered in all environments so the app is installable (Add to Home
+    // Screen needs an active SW). The SW is network-first for navigation/RSC,
+    // so it does NOT cause stale-routing (see public/sw.js).
     const onLoad = () => {
       navigator.serviceWorker.register("/sw.js").catch(() => {
         /* SW registration is best-effort */
