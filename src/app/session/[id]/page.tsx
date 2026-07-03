@@ -31,6 +31,7 @@ interface FileSession {
 }
 interface HistoryItem {
   _id: string;
+  action?: "search" | "photo_attach" | "record_merge";
   searchType: SearchType;
   searchedValue: string;
   resultCount: number;
@@ -106,12 +107,22 @@ function logTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/** Rebuild a query summary from a merged record so tapping it re-opens the result. */
-function summaryForRecord(rec: SessionRecord): string {
-  const value = rec.resultKey.split(":").slice(1).join(":");
-  const field =
-    rec.searchType === "vehicle" ? "registration" : rec.searchType === "company" ? "name" : "address";
-  return `${field}=${value}`;
+/**
+ * Count photos attached to results this audit-trail search surfaced. Photos key
+ * on the RESULT (`type:plateOrTitle`); logs only store the query — so match a
+ * photo when its result value overlaps a searched value (covers partial
+ * searches, e.g. searching "KLR" that surfaced "KLR582").
+ */
+function photosForLog(h: HistoryItem, photos: SessionPhoto[]): number {
+  const vals = Object.values(parseSummary(h.searchType, h.searchedValue))
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v.length >= 2);
+  if (!vals.length) return 0;
+  return photos.filter((p) => {
+    if (!p.resultKey?.startsWith(`${h.searchType}:`)) return false;
+    const keyVal = p.resultKey.slice(h.searchType.length + 1).toLowerCase();
+    return vals.some((v) => keyVal.includes(v) || v.includes(keyVal));
+  }).length;
 }
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -153,7 +164,6 @@ function SessionView({ id, me }: { id: string; me: Me }) {
   const [photoErr, setPhotoErr] = useState("");
   const [markup, setMarkup] = useState<string | null>(null); // captured photo being edited
   const [captureFor, setCaptureFor] = useState<string | null>(null); // result key being captured
-  const [records, setRecords] = useState<SessionRecord[]>([]); // results merged to file
   const [mergeBusy, setMergeBusy] = useState<string | null>(null); // resultKey being merged
 
   const active = services.find((s) => s.id === activeId) || null;
@@ -194,17 +204,6 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     }
   }, [id]);
 
-  const loadRecords = useCallback(async () => {
-    try {
-      const r = await api<{ records: SessionRecord[] }>(`/api/sessions/${id}/records`);
-      setRecords(r.records);
-      cacheSet(`records:${id}`, r.records);
-    } catch {
-      const cached = await cacheGet<SessionRecord[]>(`records:${id}`);
-      if (cached) setRecords(cached.value);
-    }
-  }, [id]);
-
   // Merge THIS search result (snapshot) into the file session.
   async function mergeToFile(
     rKey: string,
@@ -215,14 +214,15 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     setMergeBusy(rKey);
     setPhotoErr("");
     try {
-      const r = await post<{ record: SessionRecord }>(`/api/sessions/${id}/records`, {
+      await post<{ record: SessionRecord }>(`/api/sessions/${id}/records`, {
         resultKey: rKey,
         searchType: type,
         title,
         data: row,
       });
-      // One entry per result: replace the existing record or prepend the new one.
-      setRecords((prev) => [r.record, ...prev.filter((x) => x.resultKey !== rKey)]);
+      // The merge is audited server-side — refresh the trail so the
+      // "Record updated" entry (with time) appears immediately.
+      loadHistory();
     } catch (e) {
       setPhotoErr((e as Error).message || "Couldn't merge to file.");
     } finally {
@@ -258,6 +258,7 @@ function SessionView({ id, me }: { id: string; me: Me }) {
       setPhotos((prev) => [r.photo, ...prev]);
       setMarkup(null);
       setCaptureFor(null);
+      loadHistory(); // the attach is audited — surface "Photo added" with time
       // Make the new photo offline-available immediately (blob + metadata).
       try {
         const blob = await (await fetch(r.photo.dataUrl)).blob();
@@ -310,11 +311,10 @@ function SessionView({ id, me }: { id: string; me: Me }) {
       });
     loadHistory();
     loadPhotos();
-    loadRecords();
     cacheGet<string[]>(FAV_KEY).then((hit) => {
       if (hit) setFavs(hit.value);
     });
-  }, [id, loadHistory, loadPhotos, loadRecords, router]);
+  }, [id, loadHistory, loadPhotos, router]);
 
   function toggleFav(sid: string) {
     const next = favs.includes(sid) ? favs.filter((x) => x !== sid) : [...favs, sid];
@@ -596,67 +596,53 @@ function SessionView({ id, me }: { id: string; me: Me }) {
             ))
           )}
 
-          {records.length > 0 && (
+          {history.length > 0 && (
             <div className="mt-1">
-              <SectionLabel count={records.length}>File records · merged</SectionLabel>
+              <SectionLabel count={history.length}>Audit trail</SectionLabel>
               <div className="flex flex-col gap-2">
-                {records.map((rec) => {
-                  const recPhotos = photos.filter((p) => p.resultKey === rec.resultKey);
+                {history.slice(0, 12).map((h) => {
+                  const action = h.action ?? "search";
+                  const nPhotos = photosForLog(h, photos);
                   return (
                     <button
-                      key={rec._id}
-                      onClick={() => openLog({
-                        _id: rec._id,
-                        searchType: rec.searchType,
-                        searchedValue: summaryForRecord(rec),
-                        resultCount: 1,
-                        createdAt: rec.createdAt,
-                      })}
+                      key={h._id}
+                      onClick={() => openLog(h)}
                       className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-left transition hover:border-accent active:scale-[0.99]"
                     >
                       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-sm">
-                        {PROVIDERS[rec.searchType].icon}
+                        {action === "photo_attach" ? "📸" : PROVIDERS[h.searchType].icon}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">{rec.title}</p>
+                        <p className="truncate text-sm font-semibold">
+                          {logTitle(h.searchType, h.searchedValue)}
+                        </p>
                         <p className="truncate text-xs text-muted">
-                          {recPhotos.length > 0 && <>📎 {recPhotos.length} photo{recPhotos.length === 1 ? "" : "s"} · </>}
-                          Merged {logTime(rec.createdAt)}
+                          {action === "photo_attach" ? (
+                            <>Photo added · {logTime(h.createdAt)}</>
+                          ) : action === "record_merge" ? (
+                            <>
+                              {nPhotos > 0 && <>📎 {nPhotos} photo{nPhotos === 1 ? "" : "s"} · </>}
+                              Record updated · {logTime(h.createdAt)}
+                            </>
+                          ) : (
+                            <>
+                              {nPhotos > 0 && <>📎 {nPhotos} photo{nPhotos === 1 ? "" : "s"} · </>}
+                              {h.resultCount} result{h.resultCount === 1 ? "" : "s"} found ·{" "}
+                              {logTime(h.createdAt)}
+                            </>
+                          )}
                         </p>
                       </div>
-                      <Badge tone="accent">In file</Badge>
+                      <Badge tone={action === "search" ? "ok" : "accent"}>
+                        {action === "photo_attach"
+                          ? "Photo"
+                          : action === "record_merge"
+                            ? "Updated"
+                            : "Logged"}
+                      </Badge>
                     </button>
                   );
                 })}
-              </div>
-            </div>
-          )}
-
-          {history.length > 0 && (
-            <div className="mt-1">
-              <SectionLabel count={history.length}>Recent searches · audit trail</SectionLabel>
-              <div className="flex flex-col gap-2">
-                {history.slice(0, 8).map((h) => (
-                  <button
-                    key={h._id}
-                    onClick={() => openLog(h)}
-                    className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-left transition hover:border-accent active:scale-[0.99]"
-                  >
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-sm">
-                      {PROVIDERS[h.searchType].icon}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">
-                        {logTitle(h.searchType, h.searchedValue)}
-                      </p>
-                      <p className="truncate text-xs text-muted">
-                        {h.resultCount} result{h.resultCount === 1 ? "" : "s"} found ·{" "}
-                        {logTime(h.createdAt)}
-                      </p>
-                    </div>
-                    <Badge tone="ok">Logged</Badge>
-                  </button>
-                ))}
               </div>
             </div>
           )}

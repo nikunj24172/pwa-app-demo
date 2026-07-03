@@ -66,10 +66,13 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   session.lastActiveAt = new Date();
   await session.save();
 
+  // searchedValue in parseable "field=value" form so the audit-trail entry can
+  // be tapped to re-open this result.
+  const mergedValue = resultKey.slice(0, 200).split(":").slice(1).join(":");
   await writeAudit(req, auditActor(guard.session), {
     action: "record_merge",
     searchType,
-    searchedValue: title.trim().slice(0, 160),
+    searchedValue: `${searchType === "vehicle" ? "registration" : searchType === "company" ? "name" : "address"}=${mergedValue}`,
     sessionId: id,
     resultAccessed: true,
   });

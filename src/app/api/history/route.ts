@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db";
 import { AuditLog } from "@/lib/models/AuditLog";
-import { requireSession, json, error } from "@/lib/api";
+import { requireSession, json } from "@/lib/api";
 
 /**
  * Search history within a file session. Derived from the audit trail so history
@@ -17,14 +17,16 @@ export async function GET(req: NextRequest) {
   await connectDB();
   const filter: Record<string, unknown> = {
     userId: guard.session.sub,
-    action: "search",
+    // Searches plus per-result activity (photo attach, merge/update) so the
+    // trail shows WHEN each record was touched, not just queries.
+    action: { $in: ["search", "photo_attach", "record_merge"] },
   };
   if (sessionId) filter.sessionId = sessionId;
 
   const history = await AuditLog.find(filter)
     .sort({ createdAt: -1 })
     .limit(100)
-    .select("searchType searchedValue resultCount sessionId createdAt")
+    .select("action searchType searchedValue resultCount sessionId createdAt")
     .lean();
 
   return json({ history });

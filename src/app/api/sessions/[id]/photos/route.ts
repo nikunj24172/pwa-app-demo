@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/db";
 import { FileSession } from "@/lib/models/FileSession";
 import { SessionPhoto } from "@/lib/models/SessionPhoto";
 import { requireSession, json, error } from "@/lib/api";
+import { writeAudit, auditActor } from "@/lib/audit";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -53,6 +54,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   session.lastActiveAt = new Date();
   await session.save();
+
+  // Audit the attach so it shows (with time) in the session's audit trail.
+  // searchedValue uses the parseable "field=value" form so tapping the entry
+  // can re-open the result the photo belongs to.
+  const [rkType, ...rkRest] = (photo.resultKey ?? "").split(":");
+  const isSearchType = rkType === "vehicle" || rkType === "company" || rkType === "property";
+  await writeAudit(req, auditActor(guard.session), {
+    action: "photo_attach",
+    searchType: isSearchType ? rkType : undefined,
+    searchedValue: isSearchType
+      ? `${rkType === "vehicle" ? "registration" : rkType === "company" ? "name" : "address"}=${rkRest.join(":")}`
+      : photo.label,
+    sessionId: id,
+    resultAccessed: true,
+  });
 
   return json(
     {
