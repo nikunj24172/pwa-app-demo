@@ -16,6 +16,13 @@ import { Spinner, Button } from "@/components/ui";
 /** Idle timeout before the app locks and demands a biometric re-check. */
 const IDLE_MS = 2 * 60 * 1000; // 2 minutes
 
+// Offline unlock is remembered at MODULE scope: every page mounts its own
+// AppShell, so component state would re-demand a fingerprint on each tab
+// change. One biometric pass keeps the tab unlocked; re-locking is handled by
+// the 2-minute idle lock (and a full reload clears it). Reset when online —
+// server auth takes over, and the next offline stint re-verifies once.
+let offlineUnlocked = false;
+
 export interface Me {
   user: {
     id: string;
@@ -107,7 +114,18 @@ export default function AppShell({
         setMe(m);
         setOffline(false);
         setGate("open");
+        offlineUnlocked = false; // online again — next offline stint re-verifies
         cacheSet("me", m); // refresh the offline identity snapshot (48h TTL)
+        // Warm the SW's document cache so tab pages open even when the officer
+        // goes offline without ever having hard-loaded them.
+        navigator.serviceWorker?.ready
+          .then((reg) =>
+            reg.active?.postMessage({
+              type: "WARM_PAGES",
+              paths: ["/dashboard", "/profile", "/settings"],
+            })
+          )
+          .catch(() => {});
       })
       .catch(async () => {
         // Offline (or server unreachable): fall back to the cached identity so
@@ -119,7 +137,13 @@ export default function AppShell({
         if (cached) {
           setMe(cached.value);
           setOffline(true);
-          setGate(cached.value.biometricEnrolled ? "locked" : "unavailable");
+          setGate(
+            !cached.value.biometricEnrolled
+              ? "unavailable"
+              : offlineUnlocked
+                ? "open" // already verified this offline stint — don't re-prompt per page
+                : "locked"
+          );
         } else {
           setError(true);
           router.replace("/login");
@@ -147,8 +171,12 @@ export default function AppShell({
     setUnlocking(true);
     const ok = await unlockWithBiometric(me.biometricCredentialIds);
     setUnlocking(false);
-    if (ok) setGate("open");
-    else setUnlockErr("Unlock failed. Try again with your fingerprint or face.");
+    if (ok) {
+      offlineUnlocked = true;
+      setGate("open");
+    } else {
+      setUnlockErr("Unlock failed. Try again with your fingerprint or face.");
+    }
   }
 
   async function unlockIdle() {
@@ -158,6 +186,7 @@ export default function AppShell({
     const ok = await unlockWithBiometric(me.biometricCredentialIds);
     setUnlocking(false);
     if (ok) {
+      offlineUnlocked = true;
       lastActive.current = Date.now();
       setIdleLocked(false);
     } else {

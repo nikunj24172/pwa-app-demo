@@ -32,6 +32,29 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Warm the offline document cache for key routes (sent by AppShell when the
+// app is online + authenticated). Pages reached only via client-side routing
+// never produce a full-document request, so without this, an offline hard
+// navigation to e.g. /profile would dead-end in the browser error page.
+self.addEventListener("message", (event) => {
+  const msg = event.data;
+  if (!msg || msg.type !== "WARM_PAGES" || !Array.isArray(msg.paths)) return;
+  event.waitUntil(
+    caches.open(PAGES).then((c) =>
+      Promise.all(
+        msg.paths.map((p) =>
+          fetch(p, { credentials: "same-origin" })
+            .then((r) => {
+              // Never cache redirects (e.g. an expired session bouncing to /login).
+              if (r.ok && !r.redirected && r.type === "basic") return c.put(new Request(p), r);
+            })
+            .catch(() => {})
+        )
+      )
+    )
+  );
+});
+
 function isStaticAsset(url) {
   return (
     url.pathname.startsWith("/_next/static/") ||

@@ -210,6 +210,9 @@ function Settings({ me }: { me: Me }) {
       <Button variant="danger" onClick={signOut} loading={outBusy}>
         Sign out
       </Button>
+
+      {/* Bump on each release — lets field devices confirm they run the latest build. */}
+      <p className="text-center text-[11px] text-muted">InfoLog Mobile · v1.1.0 (3 Jul 2026)</p>
     </div>
   );
 }
