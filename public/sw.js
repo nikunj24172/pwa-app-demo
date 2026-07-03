@@ -1,10 +1,11 @@
 // InfoLog Mobile service worker.
-// SECURITY: caches only the static app shell + non-sensitive build assets
-// (JS/CSS/fonts/images). It must NEVER cache API responses, authenticated data,
-// or navigation/RSC payloads ("no local sensitive storage") — those are always
-// network-first so routing never serves stale data.
-const CACHE = "infolog-shell-v2";
-const RUNTIME = "infolog-runtime-v2";
+// SECURITY: caches the app shell + non-sensitive build assets (JS/CSS/fonts/
+// images) and page/RSC SHELLS (which hold no PII — data loads client-side via
+// /api). It must NEVER cache API responses or authenticated data. Navigations
+// and RSC are NETWORK-FIRST so routing is always fresh online; the cached shell
+// is only used as an OFFLINE fallback.
+const CACHE = "infolog-shell-v3";
+const RUNTIME = "infolog-runtime-v3";
 const SHELL = ["/", "/login", "/offline", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -45,15 +46,26 @@ self.addEventListener("fetch", (event) => {
   // Never touch API/auth traffic — always network, no caching.
   if (url.pathname.startsWith("/api/")) return;
 
-  // Navigations AND React Server Component payloads must be NETWORK-FIRST so a
-  // client-side route change never serves a stale (or wrong-auth) response.
-  // (Serving these cache-first was the "routing needs a reload" bug.)
+  // Navigations AND React Server Component payloads are NETWORK-FIRST so a
+  // client-side route change never serves a stale (or wrong-auth) response
+  // online. Successful responses are cached (page/RSC shells only — no PII) so
+  // that OFFLINE we fall back to the real app instead of the /offline page.
   const isRSC = request.headers.get("RSC") === "1" || url.searchParams.has("_rsc");
   if (request.mode === "navigate" || isRSC) {
     event.respondWith(
-      fetch(request).catch(() =>
-        caches.match(request, { ignoreSearch: true }).then((r) => r || caches.match("/offline"))
-      )
+      fetch(request)
+        .then((response) => {
+          if (response.ok && response.type === "basic") {
+            const copy = response.clone();
+            caches.open(RUNTIME).then((c) => c.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches
+            .match(request, { ignoreSearch: true })
+            .then((r) => r || caches.match("/offline"))
+        )
     );
     return;
   }
