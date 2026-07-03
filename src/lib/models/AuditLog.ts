@@ -17,6 +17,7 @@ export interface IAuditLog {
     | "result_access"
     | "session_create"
     | "session_close"
+    | "record_merge"
     | "mfa_enable"
     | "mfa_disable";
   searchType?: "vehicle" | "property" | "company";

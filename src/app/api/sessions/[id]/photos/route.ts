@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if ("response" in guard) return guard.response;
   const { id } = await params;
 
-  const { dataUrl, label } = await req.json().catch(() => ({}));
+  const { dataUrl, label, resultKey } = await req.json().catch(() => ({}));
   if (typeof dataUrl !== "string" || !/^data:image\/(jpeg|png|webp);base64,/.test(dataUrl)) {
     return error("A valid image is required.");
   }
@@ -46,6 +46,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const photo = await SessionPhoto.create({
     sessionId: id,
     userId: guard.session.sub,
+    resultKey: typeof resultKey === "string" ? resultKey.slice(0, 200) : undefined,
     dataUrl,
     label: typeof label === "string" ? label.trim().slice(0, 120) || undefined : undefined,
   });
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     {
       photo: {
         _id: photo._id.toString(),
+        resultKey: photo.resultKey,
         dataUrl: photo.dataUrl,
         label: photo.label,
         createdAt: photo.createdAt,

@@ -10,6 +10,8 @@ import { Vehicle, Property, Company } from "../src/lib/models/SearchRecords";
 import { WebAuthnCredential } from "../src/lib/models/WebAuthnCredential";
 import { FileSession } from "../src/lib/models/FileSession";
 import { AuditLog } from "../src/lib/models/AuditLog";
+import { SessionPhoto } from "../src/lib/models/SessionPhoto";
+import { SessionRecord } from "../src/lib/models/SessionRecord";
 
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
@@ -35,6 +37,8 @@ async function main() {
     WebAuthnCredential.deleteMany({}),
     FileSession.deleteMany({}),
     AuditLog.deleteMany({}),
+    SessionPhoto.deleteMany({}),
+    SessionRecord.deleteMany({}),
   ]);
 
   // Accounts. Password scheme is <FirstName>@123 for everyone.

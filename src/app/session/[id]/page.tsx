@@ -38,9 +38,22 @@ interface HistoryItem {
 }
 interface SessionPhoto {
   _id: string;
+  resultKey?: string;
   dataUrl: string;
   label?: string;
   createdAt: string;
+}
+interface SessionRecord {
+  _id: string;
+  resultKey: string;
+  searchType: SearchType;
+  title: string;
+  createdAt: string;
+}
+
+/** Stable identifier for a search result, so photos re-attach on re-search. */
+function resultKeyOf(type: SearchType, plateOrTitle: string): string {
+  return `${type}:${plateOrTitle}`;
 }
 
 const FAV_KEY = "infolog.fav.services";
@@ -92,6 +105,14 @@ function logTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+/** Rebuild a query summary from a merged record so tapping it re-opens the result. */
+function summaryForRecord(rec: SessionRecord): string {
+  const value = rec.resultKey.split(":").slice(1).join(":");
+  const field =
+    rec.searchType === "vehicle" ? "registration" : rec.searchType === "company" ? "name" : "address";
+  return `${field}=${value}`;
+}
+
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   return (
@@ -130,6 +151,9 @@ function SessionView({ id, me }: { id: string; me: Me }) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState("");
   const [markup, setMarkup] = useState<string | null>(null); // captured photo being edited
+  const [captureFor, setCaptureFor] = useState<string | null>(null); // result key being captured
+  const [records, setRecords] = useState<SessionRecord[]>([]); // results merged to file
+  const [mergeBusy, setMergeBusy] = useState<string | null>(null); // resultKey being merged
 
   const active = services.find((s) => s.id === activeId) || null;
 
@@ -142,12 +166,49 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     }
   }, [id]);
 
-  // Capture → open the markup editor (not saved until "Attach to search").
-  async function capturePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  const loadRecords = useCallback(async () => {
+    try {
+      const r = await api<{ records: SessionRecord[] }>(`/api/sessions/${id}/records`);
+      setRecords(r.records);
+      cacheSet(`records:${id}`, r.records);
+    } catch {
+      const cached = await cacheGet<SessionRecord[]>(`records:${id}`);
+      if (cached) setRecords(cached.value);
+    }
+  }, [id]);
+
+  // Merge THIS search result (snapshot) into the file session.
+  async function mergeToFile(
+    rKey: string,
+    type: SearchType,
+    title: string,
+    row: Record<string, unknown>
+  ) {
+    setMergeBusy(rKey);
+    setPhotoErr("");
+    try {
+      const r = await post<{ record: SessionRecord }>(`/api/sessions/${id}/records`, {
+        resultKey: rKey,
+        searchType: type,
+        title,
+        data: row,
+      });
+      // One entry per result: replace the existing record or prepend the new one.
+      setRecords((prev) => [r.record, ...prev.filter((x) => x.resultKey !== rKey)]);
+    } catch (e) {
+      setPhotoErr((e as Error).message || "Couldn't merge to file.");
+    } finally {
+      setMergeBusy(null);
+    }
+  }
+
+  // Capture (from a specific search result) → open the markup editor.
+  async function capturePhoto(e: React.ChangeEvent<HTMLInputElement>, key: string) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file
     if (!file) return;
     setPhotoErr("");
+    setCaptureFor(key);
     try {
       const dataUrl = await compressImage(file);
       setMarkup(dataUrl);
@@ -156,18 +217,19 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     }
   }
 
-  // Attach the marked-up image to the search/session record.
+  // Attach the marked-up image to the search RESULT it was captured from.
   async function attachPhoto(finalDataUrl: string) {
     setPhotoBusy(true);
     setPhotoErr("");
     try {
-      const label = values.registration || summary || undefined;
       const r = await post<{ photo: SessionPhoto }>(`/api/sessions/${id}/photos`, {
         dataUrl: finalDataUrl,
-        label,
+        resultKey: captureFor ?? undefined,
+        label: captureFor?.split(":").slice(1).join(":") || undefined,
       });
       setPhotos((prev) => [r.photo, ...prev]);
       setMarkup(null);
+      setCaptureFor(null);
     } catch (e) {
       setPhotoErr((e as Error).message || "Couldn't save the photo.");
     } finally {
@@ -205,10 +267,11 @@ function SessionView({ id, me }: { id: string; me: Me }) {
       });
     loadHistory();
     loadPhotos();
+    loadRecords();
     try {
       setFavs(JSON.parse(localStorage.getItem(FAV_KEY) || "[]"));
     } catch {}
-  }, [id, loadHistory, router]);
+  }, [id, loadHistory, loadPhotos, loadRecords, router]);
 
   function toggleFav(sid: string) {
     setFavs((prev) => {
@@ -407,44 +470,6 @@ function SessionView({ id, me }: { id: string; me: Me }) {
 
           <p className="text-[11px] leading-relaxed text-muted">{active.source}</p>
 
-          {/* MVR: capture a vehicle photo, attached to this file session */}
-          {active.type === "vehicle" && (
-            <div className="rounded-2xl border border-border bg-surface p-4">
-              <SectionLabel count={photos.length || undefined}>Vehicle photos</SectionLabel>
-              {offline || session.status !== "open" ? (
-                <p className="mt-1 text-xs text-muted">
-                  {offline ? "Reconnect to add photos." : "Session is closed."}
-                </p>
-              ) : (
-                <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-accent/50 bg-accent/5 px-4 py-3 text-sm font-semibold text-accent">
-                  {photoBusy ? <Spinner /> : "📷"}
-                  {photoBusy ? "Saving…" : "Capture vehicle photo"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    disabled={photoBusy}
-                    onChange={capturePhoto}
-                  />
-                </label>
-              )}
-              {photoErr && <p className="mt-2 text-sm text-danger">{photoErr}</p>}
-              {photos.length > 0 && (
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {photos.map((p) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={p._id}
-                      src={p.dataUrl}
-                      alt={p.label || "Vehicle"}
-                      className="aspect-square w-full rounded-lg border border-border object-cover"
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           {searched && (
             <p className="text-xs text-muted">
@@ -458,6 +483,13 @@ function SessionView({ id, me }: { id: string; me: Me }) {
             type={active.type}
             openId={openId}
             onOpen={accessResult}
+            photos={photos}
+            onCapture={capturePhoto}
+            photoBusy={photoBusy}
+            photoErr={photoErr}
+            canCapture={!offline && session.status === "open"}
+            onMerge={mergeToFile}
+            mergeBusy={mergeBusy}
           />
         </div>
       ) : (
@@ -525,6 +557,42 @@ function SessionView({ id, me }: { id: string; me: Me }) {
             ))
           )}
 
+          {records.length > 0 && (
+            <div className="mt-1">
+              <SectionLabel count={records.length}>File records · merged</SectionLabel>
+              <div className="flex flex-col gap-2">
+                {records.map((rec) => {
+                  const recPhotos = photos.filter((p) => p.resultKey === rec.resultKey);
+                  return (
+                    <button
+                      key={rec._id}
+                      onClick={() => openLog({
+                        _id: rec._id,
+                        searchType: rec.searchType,
+                        searchedValue: summaryForRecord(rec),
+                        resultCount: 1,
+                        createdAt: rec.createdAt,
+                      })}
+                      className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-left transition hover:border-accent active:scale-[0.99]"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-sm">
+                        {PROVIDERS[rec.searchType].icon}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{rec.title}</p>
+                        <p className="truncate text-xs text-muted">
+                          {recPhotos.length > 0 && <>📎 {recPhotos.length} photo{recPhotos.length === 1 ? "" : "s"} · </>}
+                          Merged {logTime(rec.createdAt)}
+                        </p>
+                      </div>
+                      <Badge tone="accent">In file</Badge>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {history.length > 0 && (
             <div className="mt-1">
               <SectionLabel count={history.length}>Recent searches · audit trail</SectionLabel>
@@ -586,17 +654,33 @@ function Results({
   type,
   openId,
   onOpen,
+  photos,
+  onCapture,
+  photoBusy,
+  photoErr,
+  canCapture,
+  onMerge,
+  mergeBusy,
 }: {
   results: Record<string, unknown>[];
   type: SearchType;
   openId: string | null;
   onOpen: (key: string, label: string, type: SearchType) => void;
+  photos: SessionPhoto[];
+  onCapture: (e: React.ChangeEvent<HTMLInputElement>, key: string) => void;
+  photoBusy: boolean;
+  photoErr: string;
+  canCapture: boolean;
+  onMerge: (rKey: string, type: SearchType, title: string, row: Record<string, unknown>) => void;
+  mergeBusy: string | null;
 }) {
   return (
     <div className="flex flex-col gap-3">
       {results.map((row, i) => {
         const key = `${type}-${i}`;
         const r = renderResult(type, row);
+        const rKey = resultKeyOf(type, r.plate || r.title);
+        const rphotos = photos.filter((p) => p.resultKey === rKey);
         const open = openId === key;
         return (
           <div key={key} className="overflow-hidden rounded-2xl border border-border bg-surface">
@@ -651,6 +735,53 @@ function Results({
                     <OwnerMap address={mapAddress(type, row) as string} label={mapLabel(type, row)} />
                   </div>
                 )}
+
+                {/* Photos + merge — actions for THIS search result */}
+                <div className="rounded-2xl border border-border bg-surface-2/40 p-4">
+                  <SectionLabel count={rphotos.length || undefined}>Photos</SectionLabel>
+                  {canCapture ? (
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-surface px-3 py-3 text-sm font-semibold">
+                        {photoBusy ? <Spinner /> : "📎"}
+                        {photoBusy ? "Saving…" : "Attach photo"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          disabled={photoBusy}
+                          onChange={(e) => onCapture(e, rKey)}
+                        />
+                      </label>
+                      <button
+                        onClick={() => onMerge(rKey, type, r.title, row)}
+                        disabled={mergeBusy === rKey}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-teal px-3 py-3 text-sm font-bold text-white disabled:opacity-60"
+                      >
+                        {mergeBusy === rKey ? <Spinner /> : "↳"}
+                        {mergeBusy === rKey ? "Merging…" : "Merge to file"}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted">
+                      Reconnect (online, open session) to add photos or merge.
+                    </p>
+                  )}
+                  {photoErr && <p className="mt-2 text-sm text-danger">{photoErr}</p>}
+                  {rphotos.length > 0 && (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {rphotos.map((p) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={p._id}
+                          src={p.dataUrl}
+                          alt={p.label || "Photo"}
+                          className="aspect-square w-full rounded-lg border border-border object-cover"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
