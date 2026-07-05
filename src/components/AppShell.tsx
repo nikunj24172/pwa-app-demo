@@ -14,14 +14,35 @@ import { Spinner, Button } from "@/components/ui";
 
 
 /** Idle timeout before the app locks and demands a biometric re-check. */
-const IDLE_MS = 2 * 60 * 1000; // 2 minutes
+const IDLE_MS = 3 * 60 * 1000; // 3 minutes
 
-// Offline unlock is remembered at MODULE scope: every page mounts its own
-// AppShell, so component state would re-demand a fingerprint on each tab
-// change. One biometric pass keeps the tab unlocked; re-locking is handled by
-// the 2-minute idle lock (and a full reload clears it). Reset when online —
-// server auth takes over, and the next offline stint re-verifies once.
-let offlineUnlocked = false;
+// Last user-activity (or successful unlock) timestamp, persisted in
+// sessionStorage. Module state is NOT enough: offline navigations are full
+// document loads served by the service worker, so all JS state resets on every
+// page change — which used to re-demand a fingerprint per page. sessionStorage
+// survives those reloads (same tab), so the fingerprint is only asked again
+// after IDLE_MS of real inactivity.
+const ACTIVITY_KEY = "app-last-active";
+
+function readLastActive(): number {
+  try {
+    return Number(sessionStorage.getItem(ACTIVITY_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLastActive(ts: number) {
+  try {
+    sessionStorage.setItem(ACTIVITY_KEY, String(ts));
+  } catch {
+    // sessionStorage unavailable — fall back to per-page prompting
+  }
+}
+
+function isRecentlyActive(): boolean {
+  return Date.now() - readLastActive() < IDLE_MS;
+}
 
 export interface Me {
   user: {
@@ -78,31 +99,45 @@ export default function AppShell({
   // otherwise fall back to a full re-login.
   useEffect(() => {
     if (!me || idleLocked || (offline && gate !== "open")) return;
+    // Activity is ALWAYS tracked (and persisted to sessionStorage) so that
+    // going offline — or navigating between offline pages, which are full
+    // document reloads — never re-demands a fingerprint unless the user has
+    // actually been idle for IDLE_MS.
+    let lastWrite = 0;
+    const mark = () => {
+      const now = Date.now();
+      lastActive.current = now;
+      // Throttle sessionStorage writes to once per 5s.
+      if (now - lastWrite > 5000) {
+        lastWrite = now;
+        writeLastActive(now);
+      }
+    };
+    const events = ["mousedown", "keydown", "touchstart", "pointerdown", "scroll"];
+    events.forEach((e) => window.addEventListener(e, mark, { passive: true }));
+    lastActive.current = Date.now();
+    writeLastActive(lastActive.current);
+
     // Idle biometric lock is a MOBILE-only feature — laptops/desktops may have
     // no fingerprint/face reader, so we don't lock them out after inactivity.
     // Requires BOTH a mobile UA and a touch device, so desktops never match.
     const isMobile =
       /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) &&
       navigator.maxTouchPoints > 0;
-    if (!isMobile) return;
-    const mark = () => {
-      lastActive.current = Date.now();
-    };
-    const events = ["mousedown", "keydown", "touchstart", "pointerdown", "scroll"];
-    events.forEach((e) => window.addEventListener(e, mark, { passive: true }));
-    mark();
-    const iv = setInterval(() => {
-      if (Date.now() - lastActive.current < IDLE_MS) return;
-      if (me.biometricEnrolled) {
-        setUnlockErr("");
-        setIdleLocked(true);
-      } else {
-        router.replace("/login"); // no biometric to unlock with → re-authenticate
-      }
-    }, 5000);
+    const iv = isMobile
+      ? setInterval(() => {
+          if (Date.now() - lastActive.current < IDLE_MS) return;
+          if (me.biometricEnrolled) {
+            setUnlockErr("");
+            setIdleLocked(true);
+          } else {
+            router.replace("/login"); // no biometric to unlock with → re-authenticate
+          }
+        }, 5000)
+      : undefined;
     return () => {
       events.forEach((e) => window.removeEventListener(e, mark));
-      clearInterval(iv);
+      if (iv) clearInterval(iv);
     };
   }, [me, idleLocked, offline, gate, router]);
 
@@ -114,7 +149,7 @@ export default function AppShell({
         setMe(m);
         setOffline(false);
         setGate("open");
-        offlineUnlocked = false; // online again — next offline stint re-verifies
+        writeLastActive(Date.now()); // online = authenticated & active right now
         cacheSet("me", m); // refresh the offline identity snapshot (48h TTL)
         // Warm the SW's document cache so tab pages open even when the officer
         // goes offline without ever having hard-loaded them.
@@ -140,9 +175,9 @@ export default function AppShell({
           setGate(
             !cached.value.biometricEnrolled
               ? "unavailable"
-              : offlineUnlocked
-                ? "open" // already verified this offline stint — don't re-prompt per page
-                : "locked"
+              : isRecentlyActive()
+                ? "open" // active within IDLE_MS — no fingerprint on page changes
+                : "locked" // idle too long → require biometric unlock
           );
         } else {
           setError(true);
@@ -172,7 +207,7 @@ export default function AppShell({
     const ok = await unlockWithBiometric(me.biometricCredentialIds);
     setUnlocking(false);
     if (ok) {
-      offlineUnlocked = true;
+      writeLastActive(Date.now());
       setGate("open");
     } else {
       setUnlockErr("Unlock failed. Try again with your fingerprint or face.");
@@ -186,8 +221,8 @@ export default function AppShell({
     const ok = await unlockWithBiometric(me.biometricCredentialIds);
     setUnlocking(false);
     if (ok) {
-      offlineUnlocked = true;
       lastActive.current = Date.now();
+      writeLastActive(lastActive.current);
       setIdleLocked(false);
     } else {
       setUnlockErr("Unlock failed. Try again with your fingerprint or face.");
@@ -287,7 +322,7 @@ export default function AppShell({
             <div>
               <h2 className="text-xl font-bold">Session locked</h2>
               <p className="mt-1 text-sm text-muted">
-                Locked after 2 minutes of inactivity. Verify it&apos;s you to continue.
+                Locked after 3 minutes of inactivity. Verify it&apos;s you to continue.
               </p>
             </div>
             {unlockErr && <p className="text-sm text-danger">{unlockErr}</p>}
