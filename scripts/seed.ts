@@ -61,6 +61,12 @@ async function main() {
       role: "officer",
       password: "Shruti@123",
     },
+    {
+      email: "chirag.fabiyani@savannah-labs.com",
+      name: "Chirag Fabiyani",
+      role: "officer",
+      password: "Chirag@123",
+    },
   ] as const;
 
   for (const a of accounts) {
