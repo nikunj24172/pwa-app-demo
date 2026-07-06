@@ -299,7 +299,14 @@ function SessionView({ id, me }: { id: string; me: Me }) {
         setOffline(false);
         cacheSet(`session:${id}`, r.session);
       })
-      .catch(async () => {
+      .catch(async (e) => {
+        // A TypeError means the fetch itself failed (offline). Anything else is
+        // a real server answer — expired (48h) / not found — so do NOT fall
+        // back to the cache; the session is gone.
+        if (!(e instanceof TypeError)) {
+          router.replace("/dashboard");
+          return;
+        }
         // Offline: show the cached session if we captured it within 48h.
         const cached = await cacheGet<FileSession>(`session:${id}`);
         if (cached) {

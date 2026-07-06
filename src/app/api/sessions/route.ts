@@ -1,16 +1,20 @@
 import type { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db";
-import { FileSession } from "@/lib/models/FileSession";
+import { FileSession, sessionActiveCutoff } from "@/lib/models/FileSession";
 import { requireSession, json } from "@/lib/api";
 import { writeAudit, auditActor } from "@/lib/audit";
 
-/** List the current user's file sessions (most recently active first). */
+/** List the current user's file sessions (most recently active first).
+ *  Sessions idle for over 48h are expired — hidden here, kept for audit. */
 export async function GET() {
   const guard = await requireSession();
   if ("response" in guard) return guard.response;
 
   await connectDB();
-  const sessions = await FileSession.find({ userId: guard.session.sub })
+  const sessions = await FileSession.find({
+    userId: guard.session.sub,
+    lastActiveAt: { $gte: sessionActiveCutoff() },
+  })
     .sort({ lastActiveAt: -1 })
     .limit(50)
     .lean();
