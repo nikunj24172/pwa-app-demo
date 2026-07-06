@@ -1,9 +1,17 @@
 "use client";
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, post } from "@/lib/client";
-import { cacheGet, cacheSet, cacheGetBlob, cacheSetBlob, searchCacheKey } from "@/lib/offlineStore";
+import {
+  cacheGet,
+  cacheSet,
+  cacheGetBlob,
+  cacheSetBlob,
+  cacheDelete,
+  searchCacheKey,
+} from "@/lib/offlineStore";
 import { compressImage } from "@/lib/image";
+import { getLocation } from "@/lib/geo";
 import AppShell, { type Me } from "@/components/AppShell";
 import { Button, Input, Badge, Alert, Spinner, SectionLabel, KV } from "@/components/ui";
 import {
@@ -33,6 +41,8 @@ interface FileSession {
 interface HistoryItem {
   _id: string;
   action?: "search" | "photo_attach" | "record_merge";
+  source?: "mobile" | "desktop";
+  location?: string;
   searchType: SearchType;
   searchedValue: string;
   resultCount: number;
@@ -56,6 +66,15 @@ interface SessionRecord {
 /** Stable identifier for a search result, so photos re-attach on re-search. */
 function resultKeyOf(type: SearchType, plateOrTitle: string): string {
   return `${type}:${plateOrTitle}`;
+}
+
+/** The result a photo is being captured from — everything needed to
+ *  auto-merge that result to the file once the photo is attached. */
+interface CaptureCtx {
+  key: string;
+  type: SearchType;
+  title: string;
+  row: Record<string, unknown>;
 }
 
 const FAV_KEY = "prefs:favServices";
@@ -164,10 +183,20 @@ function SessionView({ id, me }: { id: string; me: Me }) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState("");
   const [markup, setMarkup] = useState<string | null>(null); // captured photo being edited
-  const [captureFor, setCaptureFor] = useState<string | null>(null); // result key being captured
+  const [captureFor, setCaptureFor] = useState<CaptureCtx | null>(null); // result being captured
   const [mergeBusy, setMergeBusy] = useState<string | null>(null); // resultKey being merged
+  const [deleteBusy, setDeleteBusy] = useState<string | null>(null); // photoId being deleted
 
   const active = services.find((s) => s.id === activeId) || null;
+
+  // Best-effort GPS for the audit trail, prefetched so searches are never
+  // delayed by a location fix. Refreshed after each search (cached ≤60s).
+  const locRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    getLocation().then((l) => {
+      locRef.current = l;
+    });
+  }, []);
 
   const loadPhotos = useCallback(async () => {
     try {
@@ -232,12 +261,12 @@ function SessionView({ id, me }: { id: string; me: Me }) {
   }
 
   // Capture (from a specific search result) → open the markup editor.
-  async function capturePhoto(e: React.ChangeEvent<HTMLInputElement>, key: string) {
+  async function capturePhoto(e: React.ChangeEvent<HTMLInputElement>, ctx: CaptureCtx) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file
     if (!file) return;
     setPhotoErr("");
-    setCaptureFor(key);
+    setCaptureFor(ctx);
     try {
       const dataUrl = await compressImage(file);
       setMarkup(dataUrl);
@@ -246,15 +275,17 @@ function SessionView({ id, me }: { id: string; me: Me }) {
     }
   }
 
-  // Attach the marked-up image to the search RESULT it was captured from.
+  // Attach the marked-up image to the search RESULT it was captured from, then
+  // AUTO-merge that result to the file — no separate "Merge to file" tap needed.
   async function attachPhoto(finalDataUrl: string) {
+    const ctx = captureFor;
     setPhotoBusy(true);
     setPhotoErr("");
     try {
       const r = await post<{ photo: SessionPhoto }>(`/api/sessions/${id}/photos`, {
         dataUrl: finalDataUrl,
-        resultKey: captureFor ?? undefined,
-        label: captureFor?.split(":").slice(1).join(":") || undefined,
+        resultKey: ctx?.key,
+        label: ctx?.key.split(":").slice(1).join(":") || undefined,
       });
       setPhotos((prev) => [r.photo, ...prev]);
       setMarkup(null);
@@ -275,10 +306,36 @@ function SessionView({ id, me }: { id: string; me: Me }) {
       } catch {
         /* best-effort */
       }
+      // Photo saved → automatically merge/update this result's file record.
+      if (ctx) await mergeToFile(ctx.key, ctx.type, ctx.title, ctx.row);
     } catch (e) {
       setPhotoErr((e as Error).message || "Couldn't save the photo.");
     } finally {
       setPhotoBusy(false);
+    }
+  }
+
+  // Delete a photo (allowed before or after its result was merged to file).
+  async function deletePhoto(p: SessionPhoto) {
+    setDeleteBusy(p._id);
+    setPhotoErr("");
+    try {
+      await api(`/api/sessions/${id}/photos?photoId=${p._id}`, { method: "DELETE" });
+      setPhotos((prev) => prev.filter((x) => x._id !== p._id));
+      // Drop it from the offline cache too (blob + metadata list).
+      try {
+        await cacheDelete(`photo:${p._id}`);
+        const cached = await cacheGet<Omit<SessionPhoto, "dataUrl">[]>(`photos:${id}`);
+        if (cached) {
+          cacheSet(`photos:${id}`, cached.value.filter((m) => m._id !== p._id));
+        }
+      } catch {
+        /* best-effort */
+      }
+    } catch (e) {
+      setPhotoErr((e as Error).message || "Couldn't delete the photo.");
+    } finally {
+      setDeleteBusy(null);
     }
   }
 
@@ -361,8 +418,9 @@ function SessionView({ id, me }: { id: string; me: Me }) {
       try {
         const r = await post<{ results: Record<string, unknown>[]; summary: string }>(
           `/api/search/${service.type}`,
-          { fields, purpose: service.purpose, sessionId: id }
+          { fields, purpose: service.purpose, sessionId: id, location: locRef.current }
         );
+        getLocation().then((l) => (locRef.current = l)); // refresh for the next search
         setResults(r.results);
         setSummary(r.summary);
         setSearched(true);
@@ -453,7 +511,10 @@ function SessionView({ id, me }: { id: string; me: Me }) {
         <PhotoMarkup
           image={markup}
           busy={photoBusy}
-          onCancel={() => setMarkup(null)}
+          onCancel={() => {
+            setMarkup(null);
+            setCaptureFor(null);
+          }}
           onAttach={attachPhoto}
         />
       )}
@@ -539,6 +600,8 @@ function SessionView({ id, me }: { id: string; me: Me }) {
             canCapture={!offline}
             onMerge={mergeToFile}
             mergeBusy={mergeBusy}
+            onDelete={deletePhoto}
+            deleteBusy={deleteBusy}
           />
         </div>
       ) : (
@@ -613,6 +676,8 @@ function SessionView({ id, me }: { id: string; me: Me }) {
                 {history.slice(0, 12).map((h) => {
                   const action = h.action ?? "search";
                   const nPhotos = photosForLog(h, photos);
+                  const src =
+                    h.source === "desktop" ? " · 💻 Desktop" : h.source === "mobile" ? " · 📱 Mobile" : "";
                   return (
                     <button
                       key={h._id}
@@ -628,28 +693,25 @@ function SessionView({ id, me }: { id: string; me: Me }) {
                         </p>
                         <p className="truncate text-xs text-muted">
                           {action === "photo_attach" ? (
-                            <>Photo added · {logTime(h.createdAt)}</>
+                            <>Photo added · {logTime(h.createdAt)}{src}</>
                           ) : action === "record_merge" ? (
                             <>
                               {nPhotos > 0 && <>📎 {nPhotos} photo{nPhotos === 1 ? "" : "s"} · </>}
-                              Record updated · {logTime(h.createdAt)}
+                              Record updated · {logTime(h.createdAt)}{src}
                             </>
                           ) : (
                             <>
                               {nPhotos > 0 && <>📎 {nPhotos} photo{nPhotos === 1 ? "" : "s"} · </>}
                               {h.resultCount} result{h.resultCount === 1 ? "" : "s"} found ·{" "}
-                              {logTime(h.createdAt)}
+                              {logTime(h.createdAt)}{src}
                             </>
                           )}
                         </p>
+                        {h.location && (
+                          <p className="truncate text-xs text-accent">📍 {h.location}</p>
+                        )}
                       </div>
-                      <Badge tone={action === "search" ? "ok" : "accent"}>
-                        {action === "photo_attach"
-                          ? "Photo"
-                          : action === "record_merge"
-                            ? "Updated"
-                            : "Logged"}
-                      </Badge>
+                      <Badge tone="ok">Audited</Badge>
                     </button>
                   );
                 })}
@@ -696,18 +758,22 @@ function Results({
   canCapture,
   onMerge,
   mergeBusy,
+  onDelete,
+  deleteBusy,
 }: {
   results: Record<string, unknown>[];
   type: SearchType;
   openId: string | null;
   onOpen: (key: string, label: string, type: SearchType) => void;
   photos: SessionPhoto[];
-  onCapture: (e: React.ChangeEvent<HTMLInputElement>, key: string) => void;
+  onCapture: (e: React.ChangeEvent<HTMLInputElement>, ctx: CaptureCtx) => void;
   photoBusy: boolean;
   photoErr: string;
   canCapture: boolean;
   onMerge: (rKey: string, type: SearchType, title: string, row: Record<string, unknown>) => void;
   mergeBusy: string | null;
+  onDelete: (p: SessionPhoto) => void;
+  deleteBusy: string | null;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -785,7 +851,7 @@ function Results({
                           capture="environment"
                           className="hidden"
                           disabled={photoBusy}
-                          onChange={(e) => onCapture(e, rKey)}
+                          onChange={(e) => onCapture(e, { key: rKey, type, title: r.title, row })}
                         />
                       </label>
                       <button
@@ -806,13 +872,24 @@ function Results({
                   {rphotos.length > 0 && (
                     <div className="mt-3 grid grid-cols-3 gap-2">
                       {rphotos.map((p) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          key={p._id}
-                          src={p.dataUrl}
-                          alt={p.label || "Photo"}
-                          className="aspect-square w-full rounded-lg border border-border object-cover"
-                        />
+                        <div key={p._id} className="relative">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={p.dataUrl}
+                            alt={p.label || "Photo"}
+                            className="aspect-square w-full rounded-lg border border-border object-cover"
+                          />
+                          {canCapture && (
+                            <button
+                              onClick={() => onDelete(p)}
+                              disabled={deleteBusy === p._id}
+                              aria-label="Delete photo"
+                              className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-background/85 text-xs font-bold text-danger shadow disabled:opacity-60"
+                            >
+                              {deleteBusy === p._id ? "…" : "✕"}
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}

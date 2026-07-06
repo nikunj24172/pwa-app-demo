@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const guard = await requireSession(SEARCH_PERMISSION[type]);
   if ("response" in guard) return guard.response;
 
-  const { fields, purpose, sessionId } = await req.json().catch(() => ({}));
+  const { fields, purpose, sessionId, location } = await req.json().catch(() => ({}));
   if (!fields || typeof fields !== "object") {
     return error("Enter at least one search field.");
   }
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     sessionId: String(sessionId),
     resultCount: results.length,
     resultAccessed: false,
+    location: typeof location === "string" ? location.slice(0, 80) : undefined,
   });
 
   return json({ type, summary, count: results.length, results });

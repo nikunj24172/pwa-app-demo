@@ -30,7 +30,17 @@ export function requestMeta(req: NextRequest) {
     req.headers.get("x-real-ip") ||
     "127.0.0.1";
   const device = detectDevice(ua);
-  return { userAgent: ua, ip, device, source: "mobile" as const };
+  return { userAgent: ua, ip, device, source: detectSource(req, ua) };
+}
+
+/** Web (desktop browser) vs mobile, so the audit trail shows where each
+ *  action came from. Prefers the client-hint header (Chromium sends
+ *  `sec-ch-ua-mobile: ?1/?0`); falls back to user-agent sniffing. */
+function detectSource(req: NextRequest, ua: string): "mobile" | "desktop" {
+  const hint = req.headers.get("sec-ch-ua-mobile");
+  if (hint === "?1") return "mobile";
+  if (hint === "?0") return "desktop";
+  return /android|iphone|ipad|ipod|mobile/i.test(ua) ? "mobile" : "desktop";
 }
 
 function detectDevice(ua: string): string {

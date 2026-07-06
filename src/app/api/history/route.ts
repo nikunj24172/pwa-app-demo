@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   const history = await AuditLog.find(filter)
     .sort({ createdAt: -1 })
     .limit(100)
-    .select("action searchType searchedValue resultCount sessionId createdAt")
+    .select("action searchType searchedValue resultCount sessionId createdAt source location")
     .lean();
 
   return json({ history });

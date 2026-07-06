@@ -3,22 +3,10 @@ import { Suspense, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 import { post } from "@/lib/client";
+import { getLocation } from "@/lib/geo";
 import { Spinner } from "@/components/ui";
 
 type Step = "credentials" | "mfaSetup" | "mfa" | "offer";
-
-/** Best-effort geolocation for the audit trail ("Location captured"). */
-function getLocation(): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation)
-      return resolve(undefined);
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve(`${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`),
-      () => resolve(undefined),
-      { timeout: 5000, maximumAge: 60000 }
-    );
-  });
-}
 
 const glassInput =
   "w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm text-white placeholder:text-white/55 outline-none focus:border-white focus:bg-white/15";

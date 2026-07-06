@@ -14,6 +14,7 @@ interface AuditEntry {
   device: string;
   ip: string;
   source: string;
+  location?: string;
   resultAccessed: boolean;
   resultCount?: number;
   createdAt: string;
@@ -83,6 +84,16 @@ function AuditView() {
               {scope === "all" && <span>{e.username} · </span>}
               {new Date(e.createdAt).toLocaleString()} · {e.device} · {e.ip}
             </p>
+            {e.location && (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.location)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-0.5 inline-block text-xs text-accent"
+              >
+                📍 {e.location}
+              </a>
+            )}
           </Card>
         ))
       )}

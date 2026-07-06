@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/db";
 import { FileSession } from "@/lib/models/FileSession";
 import { SessionPhoto } from "@/lib/models/SessionPhoto";
@@ -9,6 +10,19 @@ type Ctx = { params: Promise<{ id: string }> };
 
 // Compressed client-side to ~1024px JPEG; cap the payload defensively.
 const MAX_DATAURL_LEN = 3_000_000; // ~3MB
+
+/** Audit fields for a photo: parseable "field=value" searchedValue so tapping
+ *  the trail entry can re-open the result the photo belongs to. */
+function photoAuditFields(resultKey: string | undefined, label: string | undefined) {
+  const [rkType, ...rkRest] = (resultKey ?? "").split(":");
+  const isSearchType = rkType === "vehicle" || rkType === "company" || rkType === "property";
+  return {
+    searchType: isSearchType ? (rkType as "vehicle" | "company" | "property") : undefined,
+    searchedValue: isSearchType
+      ? `${rkType === "vehicle" ? "registration" : rkType === "company" ? "name" : "address"}=${rkRest.join(":")}`
+      : label,
+  };
+}
 
 /** List the photos attached to a file session. */
 export async function GET(_req: NextRequest, { params }: Ctx) {
@@ -56,16 +70,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   await session.save();
 
   // Audit the attach so it shows (with time) in the session's audit trail.
-  // searchedValue uses the parseable "field=value" form so tapping the entry
-  // can re-open the result the photo belongs to.
-  const [rkType, ...rkRest] = (photo.resultKey ?? "").split(":");
-  const isSearchType = rkType === "vehicle" || rkType === "company" || rkType === "property";
   await writeAudit(req, auditActor(guard.session), {
     action: "photo_attach",
-    searchType: isSearchType ? rkType : undefined,
-    searchedValue: isSearchType
-      ? `${rkType === "vehicle" ? "registration" : rkType === "company" ? "name" : "address"}=${rkRest.join(":")}`
-      : photo.label,
+    ...photoAuditFields(photo.resultKey, photo.label),
     sessionId: id,
     resultAccessed: true,
   });
@@ -82,4 +89,38 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     },
     201
   );
+}
+
+/** Delete a photo (works before or after its result was merged to file). */
+export async function DELETE(req: NextRequest, { params }: Ctx) {
+  const guard = await requireSession();
+  if ("response" in guard) return guard.response;
+  const { id } = await params;
+
+  const photoId = req.nextUrl.searchParams.get("photoId");
+  if (!photoId || !mongoose.isValidObjectId(photoId)) {
+    return error("A valid photo id is required.");
+  }
+
+  await connectDB();
+  const session = await FileSession.findOne({ _id: id, userId: guard.session.sub });
+  if (!session) return error("Session not found.", 404);
+
+  const photo = await SessionPhoto.findOneAndDelete({
+    _id: photoId,
+    sessionId: id,
+    userId: guard.session.sub,
+  });
+  if (!photo) return error("Photo not found.", 404);
+
+  session.lastActiveAt = new Date();
+  await session.save();
+
+  await writeAudit(req, auditActor(guard.session), {
+    action: "photo_delete",
+    ...photoAuditFields(photo.resultKey, photo.label),
+    sessionId: id,
+  });
+
+  return json({ ok: true });
 }
