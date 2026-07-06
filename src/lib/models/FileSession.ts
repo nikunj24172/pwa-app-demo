@@ -17,11 +17,11 @@ export interface IFileSession {
 
 /**
  * File sessions are 48-hour field artifacts: they disappear from the app 48h
- * after their LAST activity (a search / photo / merge extends the window).
+ * after CREATION — a hard lifetime; continued activity does NOT extend it.
  * Expired sessions are hidden, not deleted — the audit trail must survive.
  */
 export const SESSION_TTL_MS = 48 * 60 * 60 * 1000;
-export const sessionActiveCutoff = () => new Date(Date.now() - SESSION_TTL_MS);
+export const sessionExpiryCutoff = () => new Date(Date.now() - SESSION_TTL_MS);
 
 const FileSessionSchema = new Schema<IFileSession>(
   {

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db";
-import { FileSession, sessionActiveCutoff } from "@/lib/models/FileSession";
+import { FileSession, sessionExpiryCutoff } from "@/lib/models/FileSession";
 import { requireSession, json, error } from "@/lib/api";
 import { writeAudit, auditActor } from "@/lib/audit";
 
@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     userId: guard.session.sub,
   }).lean();
   if (!session) return error("Session not found.", 404);
-  if (session.lastActiveAt < sessionActiveCutoff()) {
+  if (session.createdAt < sessionExpiryCutoff()) {
     return error("This file session expired after 48 hours.", 404);
   }
 

@@ -152,7 +152,7 @@ function Dashboard({ name, canCreate }: { name: string; canCreate: boolean }) {
               </Link>
             ))}
             <p className="flex items-center justify-center gap-1.5 pb-1 pt-0.5 text-center text-[11px] text-muted">
-              <span>ℹ️</span> Sessions expire 48 hours after their last activity.
+              <span>ℹ️</span> Sessions expire 48 hours after creation.
             </p>
           </div>
         )}

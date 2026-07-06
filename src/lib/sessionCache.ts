@@ -47,7 +47,15 @@ export async function getCachedSessions(): Promise<{
 }> {
   dropLegacy();
   const hit = await cacheGet<CachedSession[]>(KEY);
-  if (hit) return { sessions: hit.value, expired: false };
+  if (hit) {
+    // Sessions have a hard 48h lifetime from CREATION — enforce it on the
+    // cached copy too, so a list cached earlier can't serve stale sessions.
+    const fresh = hit.value.filter(
+      (s) => Date.now() - new Date(s.createdAt).getTime() < OFFLINE_TTL_MS
+    );
+    if (fresh.length) return { sessions: fresh, expired: false };
+    return { sessions: [], expired: hit.value.length > 0 };
+  }
   // No data — if we HAVE synced before, the 48h window lapsed (vs. never cached).
   const marker = await cacheGet<number>(SYNC_KEY);
   return { sessions: [], expired: marker !== null };

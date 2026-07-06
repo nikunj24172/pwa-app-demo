@@ -28,6 +28,7 @@ interface FileSession {
   caseRef: string;
   status: "open" | "closed";
   searchCount: number;
+  createdAt: string;
 }
 interface HistoryItem {
   _id: string;
@@ -307,9 +308,11 @@ function SessionView({ id, me }: { id: string; me: Me }) {
           router.replace("/dashboard");
           return;
         }
-        // Offline: show the cached session if we captured it within 48h.
+        // Offline: show the cached session — but only within its own 48h
+        // lifetime from creation, matching the server-side purge.
         const cached = await cacheGet<FileSession>(`session:${id}`);
-        if (cached) {
+        const age = cached ? Date.now() - new Date(cached.value.createdAt).getTime() : Infinity;
+        if (cached && age < 48 * 60 * 60 * 1000) {
           setSession(cached.value);
           setOffline(true);
         } else {
