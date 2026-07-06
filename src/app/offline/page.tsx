@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getCachedSessions, type CachedSession } from "@/lib/sessionCache";
+import { timeAgo } from "@/lib/time";
 import { Card, Badge } from "@/components/ui";
 
 export default function Offline() {
@@ -45,7 +46,9 @@ export default function Offline() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold">{s.title}</p>
-                    <p className="text-xs text-muted">{s.caseRef || "No case ref"}</p>
+                    <p className="text-xs text-muted">
+                      {s.caseRef || "No case ref"} · Created {timeAgo(s.createdAt)}
+                    </p>
                   </div>
                   <Badge tone="ok">Audited</Badge>
                 </div>

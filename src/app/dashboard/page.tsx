@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, post } from "@/lib/client";
 import { cacheSessions, getCachedSessions, type CachedSession } from "@/lib/sessionCache";
+import { timeAgo } from "@/lib/time";
 import AppShell from "@/components/AppShell";
 import { Badge, Alert, Spinner, SectionLabel } from "@/components/ui";
 
@@ -144,10 +145,8 @@ function Dashboard({ name, canCreate }: { name: string; canCreate: boolean }) {
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs">
                     <Meta label="Case ref" value={s.caseRef || "—"} />
                     <Meta label="Searches" value={String(s.searchCount)} />
-                    <Meta
-                      label="Last active"
-                      value={new Date(s.lastActiveAt).toLocaleDateString()}
-                    />
+                    <Meta label="Created" value={timeAgo(s.createdAt)} />
+                    <Meta label="Last active" value={timeAgo(s.lastActiveAt)} />
                   </div>
                 </div>
               </Link>
