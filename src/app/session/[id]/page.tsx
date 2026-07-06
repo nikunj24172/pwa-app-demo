@@ -884,7 +884,7 @@ function Results({
                               onClick={() => onDelete(p)}
                               disabled={deleteBusy === p._id}
                               aria-label="Delete photo"
-                              className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-background/85 text-xs font-bold text-danger shadow disabled:opacity-60"
+                              className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full border border-border bg-background/90 text-xs font-bold text-danger shadow-lg backdrop-blur disabled:opacity-60"
                             >
                               {deleteBusy === p._id ? "…" : "✕"}
                             </button>

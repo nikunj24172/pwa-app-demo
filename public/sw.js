@@ -10,10 +10,10 @@
 // with a document and an RSC fetch only ever with an RSC payload — serving one
 // where the other is expected makes Next.js bail into a hard reload of the
 // current page (the "click did nothing" bug).
-const CACHE = "infolog-shell-v4";
-const RUNTIME = "infolog-runtime-v4";
-const PAGES = "infolog-pages-v4"; // offline fallback: HTML documents, keyed by pathname
-const RSC = "infolog-rsc-v4"; // offline fallback: RSC payloads, keyed by pathname
+const CACHE = "infolog-shell-v5";
+const RUNTIME = "infolog-runtime-v5";
+const PAGES = "infolog-pages-v5"; // offline fallback: HTML documents, keyed by pathname
+const RSC = "infolog-rsc-v5"; // offline fallback: RSC payloads, keyed by pathname
 const KEEP = [CACHE, RUNTIME, PAGES, RSC];
 const SHELL = [
   "/",
@@ -105,6 +105,11 @@ self.addEventListener("fetch", (event) => {
 
   // Only handle same-origin GETs.
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
+
+  // Local dev: never serve from cache. Dev asset URLs (CSS especially) are not
+  // content-hashed, so cache-first would keep serving STALE styles/chunks after
+  // an edit — the classic "new markup, old CSS" bug.
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return;
 
   // Never touch API/auth traffic — always network, no caching.
   if (url.pathname.startsWith("/api/")) return;
