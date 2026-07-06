@@ -18,7 +18,15 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "InfoLog",
   },
-  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    // iOS ignores SVG here — without a PNG apple-touch-icon, "Add to Home
+    // Screen" falls back to a page screenshot.
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

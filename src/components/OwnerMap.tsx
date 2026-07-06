@@ -1,11 +1,29 @@
 "use client";
+import { useEffect, useState } from "react";
 
 /**
  * Map for a record's address, matching the InfoLog report layout.
  * Uses Google's keyless embed (no API key needed); Directions / View open the
  * full Google Maps app.
+ *
+ * OFFLINE: map tiles are third-party content that cannot be pre-cached, so
+ * without a connection we show the address card instead — and swap the live
+ * map back in automatically when connectivity returns.
  */
 export default function OwnerMap({ address, label }: { address: string; label?: string }) {
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
   const q = encodeURIComponent(address);
   const embed = `https://maps.google.com/maps?q=${q}&z=15&output=embed`;
   const directions = `https://www.google.com/maps/dir/?api=1&destination=${q}`;
@@ -19,13 +37,25 @@ export default function OwnerMap({ address, label }: { address: string; label?: 
             📍 {label}
           </span>
         )}
-        <iframe
-          title={`Map of ${address}`}
-          src={embed}
-          className="h-44 w-full"
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-        />
+        {online ? (
+          <iframe
+            title={`Map of ${address}`}
+            src={embed}
+            className="h-44 w-full"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        ) : (
+          <div className="grid h-44 w-full place-items-center bg-surface-2 p-4 text-center">
+            <div>
+              <div className="text-2xl">🗺️</div>
+              <p className="mt-1 text-sm font-semibold">{address}</p>
+              <p className="mt-1 text-xs text-muted">
+                You&apos;re offline — the map will load when you reconnect.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <a

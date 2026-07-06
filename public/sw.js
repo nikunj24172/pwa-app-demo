@@ -15,7 +15,15 @@ const RUNTIME = "infolog-runtime-v4";
 const PAGES = "infolog-pages-v4"; // offline fallback: HTML documents, keyed by pathname
 const RSC = "infolog-rsc-v4"; // offline fallback: RSC payloads, keyed by pathname
 const KEEP = [CACHE, RUNTIME, PAGES, RSC];
-const SHELL = ["/", "/login", "/offline", "/manifest.webmanifest", "/icon.svg"];
+const SHELL = [
+  "/",
+  "/login",
+  "/offline",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
